@@ -225,7 +225,10 @@ class IsolateAudioPlayer {
   void setReplayGain(double gainDb) =>
       _send({'cmd': 'setReplayGain', 'gainDb': gainDb});
   void setPan(double pan) => _send({'cmd': 'setPan', 'pan': pan});
+  void setRate(double rate) => _send({'cmd': 'setRate', 'rate': rate});
   void setPitch(double pitch) => _send({'cmd': 'setPitch', 'pitch': pitch});
+  void setPitchCorrection(bool enabled) =>
+      _send({'cmd': 'setPitchCorrection', 'enabled': enabled});
 
   void setSpatializationEnabled(bool enabled) =>
       _send({'cmd': 'setSpatializationEnabled', 'enabled': enabled});
@@ -1411,9 +1414,17 @@ void _isolateEntry(_IsolateInitData initData) {
         case 'setPan':
           player.setPan(message['pan']);
           break;
+        case 'setRate':
+          final r = (message['rate'] as num?)?.toDouble() ?? 1.0;
+          player.setRate(r);
+          break;
         case 'setPitch':
           final p = (message['pitch'] as num?)?.toDouble() ?? 1.0;
           player.setPitch(p);
+          break;
+        case 'setPitchCorrection':
+          final en = message['enabled'] as bool? ?? true;
+          player.setPitchCorrection(en);
           break;
         case 'setSpatializationEnabled':
           player.setSpatializationEnabled(message['enabled']);

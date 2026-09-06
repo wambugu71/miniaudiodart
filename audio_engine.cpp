@@ -47,6 +47,7 @@
 #include "dsp/spatial_surround_dsp.h"
 #include "dsp/denormals.h"
 #include "dsp/subsonic_filter.h"
+#include "dsp/scaletempo_dsp.h"
 
 #include <algorithm>
 #include <atomic>
@@ -2952,8 +2953,10 @@ struct AudioEngineHandle
     std::atomic<double> abStartSeconds{0.0};
     std::atomic<double> abEndSeconds{0.0};
 
-    // Pitch
+    // Speed (Rate), Pitch & Pitch Correction (Scaletempo)
+    std::atomic<float> rateMultiplier{1.0f};
     std::atomic<float> pitchMultiplier{1.0f};
+    std::atomic<bool> pitchCorrectionEnabled{true};
     ma_resampler pitchResampler{};
     bool pitchResamplerInit = false;
     int pitchResamplerRate = 0;
@@ -2961,6 +2964,8 @@ struct AudioEngineHandle
     float pitchResamplerCurrentPitch = 1.0f;
     std::vector<float> pitchInputBuffer;
     size_t pitchInputUnconsumed = 0;
+    sauti::dsp::ScaleTempoDSP tempoProcessor;
+    std::vector<float> tempoInputChunk;
 
     // Fading & Scheduling
     std::atomic<bool> customFadeArmed{false};
@@ -4434,6 +4439,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                     ma_resampler_reset(&e->pitchResampler);
                                     e->pitchInputUnconsumed = 0;
                                 }
+                                e->tempoProcessor.reset();
                                 e->pcmRingBuffer.reset();
                             }
                             e->ringBufferFlushing.store(false, std::memory_order_release);
@@ -4498,117 +4504,210 @@ static void decode_producer_loop(AudioEngineHandle *e)
             }
 
             ma_uint64 framesRead = 0;
+            const float rate = e->rateMultiplier.load(std::memory_order_relaxed);
             const float pitch = e->pitchMultiplier.load(std::memory_order_relaxed);
+            const bool pitchCorrection = e->pitchCorrectionEnabled.load(std::memory_order_relaxed);
             ma_result r = MA_SUCCESS;
 
-            if (std::abs(pitch - 1.0f) < 0.001f)
+            float effectiveResampleRatio = 1.0f;
+            float effectiveTempoScale = 1.0f;
+
+            if (pitchCorrection)
             {
-                if (e->pitchResamplerInit && e->pitchResamplerCurrentPitch != 1.0f)
-                {
-                    ma_resampler_reset(&e->pitchResampler);
-                    e->pitchInputUnconsumed = 0;
-                    e->pitchResamplerCurrentPitch = 1.0f;
-                }
-                r = ma_decoder_read_pcm_frames(
-                    e->currentDecoder,
-                    tempChunk.data(),
-                    (ma_uint64)targetChunkFrames,
-                    &framesRead);
+                // Scaletempo enabled: pitch shifted independently, speed stretched without pitch change
+                effectiveResampleRatio = std::clamp(pitch, 0.05f, 10.0f);
+                effectiveTempoScale = std::clamp(rate / effectiveResampleRatio, 0.05f, 10.0f);
             }
             else
             {
-                const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
-                if (!e->pitchResamplerInit || e->pitchResamplerRate != sr || e->pitchResamplerChannels != (int)ch)
+                // Scaletempo disabled: tape/vinyl mode (pitch & speed coupled)
+                effectiveResampleRatio = std::clamp(rate * pitch, 0.05f, 10.0f);
+                effectiveTempoScale = 1.0f;
+            }
+
+            const bool needResampler = (std::abs(effectiveResampleRatio - 1.0f) >= 0.001f);
+            const bool needTempoScale = (std::abs(effectiveTempoScale - 1.0f) >= 0.001f);
+            const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+
+            if (needTempoScale)
+            {
+                if (!e->tempoProcessor.isInitialized() || e->tempoProcessor.getSampleRate() != sr || e->tempoProcessor.getChannels() != (int)ch)
                 {
+                    e->tempoProcessor.init(sr, (int)ch);
+                }
+                e->tempoProcessor.setScale(effectiveTempoScale);
+            }
+
+            if (tempChunk.size() < targetChunkFrames * ch * 2)
+            {
+                tempChunk.resize(targetChunkFrames * ch * 2);
+            }
+
+            if (needTempoScale && e->tempoProcessor.availableOutputFrames() >= targetChunkFrames)
+            {
+                framesRead = e->tempoProcessor.readOutput(tempChunk.data(), targetChunkFrames);
+            }
+            else
+            {
+                if (needResampler)
+                {
+                    if (!e->pitchResamplerInit || e->pitchResamplerRate != sr || e->pitchResamplerChannels != (int)ch)
+                    {
+                        if (e->pitchResamplerInit)
+                        {
+                            ma_resampler_uninit(&e->pitchResampler, nullptr);
+                            e->pitchResamplerInit = false;
+                        }
+                        ma_resampler_config rcfg = ma_resampler_config_init(
+                            ma_format_f32,
+                            (ma_uint32)ch,
+                            (ma_uint32)sr,
+                            (ma_uint32)sr,
+                            ma_resample_algorithm_linear);
+                        if (ma_resampler_init(&rcfg, nullptr, &e->pitchResampler) == MA_SUCCESS)
+                        {
+                            e->pitchResamplerInit = true;
+                            e->pitchResamplerRate = sr;
+                            e->pitchResamplerChannels = (int)ch;
+                            e->pitchResamplerCurrentPitch = 1.0f;
+                        }
+                        e->pitchInputBuffer.clear();
+                        e->pitchInputUnconsumed = 0;
+                    }
+
                     if (e->pitchResamplerInit)
                     {
-                        ma_resampler_uninit(&e->pitchResampler, nullptr);
-                        e->pitchResamplerInit = false;
-                    }
-                    // Pitch/speed adjustment requires low-latency linear interpolation.
-                    // Must NOT inherit e->resampleAlgorithm (e.g. SoXR VHQ sinc filter).
-                    ma_resampler_config rcfg = ma_resampler_config_init(
-                        ma_format_f32,
-                        (ma_uint32)ch,
-                        (ma_uint32)sr,
-                        (ma_uint32)sr,
-                        ma_resample_algorithm_linear);
-                    if (ma_resampler_init(&rcfg, nullptr, &e->pitchResampler) == MA_SUCCESS)
-                    {
-                        e->pitchResamplerInit = true;
-                        e->pitchResamplerRate = sr;
-                        e->pitchResamplerChannels = (int)ch;
-                        e->pitchResamplerCurrentPitch = 1.0f;
-                    }
-                    e->pitchInputBuffer.clear();
-                    e->pitchInputUnconsumed = 0;
-                }
+                        if (std::abs(effectiveResampleRatio - e->pitchResamplerCurrentPitch) > 0.0001f)
+                        {
+                            ma_resampler_set_rate_ratio(&e->pitchResampler, effectiveResampleRatio);
+                            e->pitchResamplerCurrentPitch = effectiveResampleRatio;
+                        }
 
-                if (e->pitchResamplerInit)
-                {
-                    if (std::abs(pitch - e->pitchResamplerCurrentPitch) > 0.0001f)
-                    {
-                        ma_resampler_set_rate_ratio(&e->pitchResampler, pitch);
-                        e->pitchResamplerCurrentPitch = pitch;
+                        const ma_uint64 outNeeded = (ma_uint64)targetChunkFrames;
+                        ma_uint64 inNeeded = 0;
+                        ma_resampler_get_required_input_frame_count(&e->pitchResampler, outNeeded, &inNeeded);
+                        if (inNeeded == 0) inNeeded = outNeeded;
+
+                        size_t framesToRead = 0;
+                        if ((size_t)inNeeded > e->pitchInputUnconsumed)
+                        {
+                            framesToRead = (size_t)inNeeded - e->pitchInputUnconsumed;
+                        }
+
+                        size_t requiredCapacityFrames = e->pitchInputUnconsumed + framesToRead;
+                        size_t requiredCapacitySamples = requiredCapacityFrames * ch;
+                        if (e->pitchInputBuffer.size() < requiredCapacitySamples)
+                        {
+                            e->pitchInputBuffer.resize(requiredCapacitySamples);
+                        }
+
+                        ma_uint64 inRead = 0;
+                        if (framesToRead > 0)
+                        {
+                            r = ma_decoder_read_pcm_frames(
+                                e->currentDecoder,
+                                e->pitchInputBuffer.data() + (e->pitchInputUnconsumed * ch),
+                                (ma_uint64)framesToRead,
+                                &inRead);
+                        }
+
+                        ma_uint64 totalInFrames = e->pitchInputUnconsumed + inRead;
+                        ma_uint64 outProcessed = outNeeded;
+                        ma_uint64 inProcessed = totalInFrames;
+
+                        float *destPtr = tempChunk.data();
+                        if (needTempoScale)
+                        {
+                            if (e->tempoInputChunk.size() < outNeeded * ch)
+                            {
+                                e->tempoInputChunk.resize(outNeeded * ch);
+                            }
+                            destPtr = e->tempoInputChunk.data();
+                        }
+
+                        ma_resampler_process_pcm_frames(
+                            &e->pitchResampler,
+                            e->pitchInputBuffer.data(),
+                            &inProcessed,
+                            destPtr,
+                            &outProcessed);
+
+                        size_t unconsumedLeft = (totalInFrames > inProcessed) ? (size_t)(totalInFrames - inProcessed) : 0;
+                        if (unconsumedLeft > 0 && inProcessed > 0)
+                        {
+                            std::memmove(
+                                e->pitchInputBuffer.data(),
+                                e->pitchInputBuffer.data() + (inProcessed * ch),
+                                unconsumedLeft * ch * sizeof(float));
+                        }
+                        e->pitchInputUnconsumed = unconsumedLeft;
+
+                        if (needTempoScale)
+                        {
+                            e->tempoProcessor.writeInput(e->tempoInputChunk.data(), outProcessed);
+                            framesRead = e->tempoProcessor.readOutput(tempChunk.data(), targetChunkFrames);
+                        }
+                        else
+                        {
+                            framesRead = outProcessed;
+                        }
                     }
-
-                    const ma_uint64 outNeeded = (ma_uint64)targetChunkFrames;
-                    ma_uint64 inNeeded = 0;
-                    ma_resampler_get_required_input_frame_count(&e->pitchResampler, outNeeded, &inNeeded);
-                    if (inNeeded == 0) inNeeded = outNeeded;
-
-                    size_t framesToRead = 0;
-                    if ((size_t)inNeeded > e->pitchInputUnconsumed)
-                    {
-                        framesToRead = (size_t)inNeeded - e->pitchInputUnconsumed;
-                    }
-
-                    size_t requiredCapacityFrames = e->pitchInputUnconsumed + framesToRead;
-                    size_t requiredCapacitySamples = requiredCapacityFrames * ch;
-                    if (e->pitchInputBuffer.size() < requiredCapacitySamples)
-                    {
-                        e->pitchInputBuffer.resize(requiredCapacitySamples);
-                    }
-
-                    ma_uint64 inRead = 0;
-                    if (framesToRead > 0)
+                    else
                     {
                         r = ma_decoder_read_pcm_frames(
                             e->currentDecoder,
-                            e->pitchInputBuffer.data() + (e->pitchInputUnconsumed * ch),
-                            (ma_uint64)framesToRead,
-                            &inRead);
+                            tempChunk.data(),
+                            (ma_uint64)targetChunkFrames,
+                            &framesRead);
                     }
-
-                    ma_uint64 totalInFrames = e->pitchInputUnconsumed + inRead;
-                    ma_uint64 outProcessed = outNeeded;
-                    ma_uint64 inProcessed = totalInFrames;
-
-                    ma_resampler_process_pcm_frames(
-                        &e->pitchResampler,
-                        e->pitchInputBuffer.data(),
-                        &inProcessed,
-                        tempChunk.data(),
-                        &outProcessed);
-
-                    size_t unconsumedLeft = (totalInFrames > inProcessed) ? (size_t)(totalInFrames - inProcessed) : 0;
-                    if (unconsumedLeft > 0 && inProcessed > 0)
-                    {
-                        std::memmove(
-                            e->pitchInputBuffer.data(),
-                            e->pitchInputBuffer.data() + (inProcessed * ch),
-                            unconsumedLeft * ch * sizeof(float));
-                    }
-                    e->pitchInputUnconsumed = unconsumedLeft;
-                    framesRead = outProcessed;
                 }
                 else
                 {
-                    r = ma_decoder_read_pcm_frames(
-                        e->currentDecoder,
-                        tempChunk.data(),
-                        (ma_uint64)targetChunkFrames,
-                        &framesRead);
+                    // No resampler needed
+                    if (e->pitchResamplerInit && e->pitchResamplerCurrentPitch != 1.0f)
+                    {
+                        ma_resampler_reset(&e->pitchResampler);
+                        e->pitchInputUnconsumed = 0;
+                        e->pitchResamplerCurrentPitch = 1.0f;
+                    }
+
+                    if (needTempoScale)
+                    {
+                        if (e->tempoInputChunk.size() < targetChunkFrames * ch)
+                        {
+                            e->tempoInputChunk.resize(targetChunkFrames * ch);
+                        }
+                        ma_uint64 inRead = 0;
+                        r = ma_decoder_read_pcm_frames(
+                            e->currentDecoder,
+                            e->tempoInputChunk.data(),
+                            (ma_uint64)targetChunkFrames,
+                            &inRead);
+                        if (inRead > 0)
+                        {
+                            e->tempoProcessor.writeInput(e->tempoInputChunk.data(), inRead);
+                        }
+                        framesRead = e->tempoProcessor.readOutput(tempChunk.data(), targetChunkFrames);
+                        if (framesRead == 0 && r == MA_AT_END && e->tempoProcessor.availableOutputFrames() > 0)
+                        {
+                            framesRead = e->tempoProcessor.readOutput(tempChunk.data(), targetChunkFrames);
+                        }
+                    }
+                    else
+                    {
+                        if (e->tempoProcessor.availableOutputFrames() > 0)
+                        {
+                            framesRead = e->tempoProcessor.readOutput(tempChunk.data(), targetChunkFrames);
+                        }
+                        else
+                        {
+                            r = ma_decoder_read_pcm_frames(
+                                e->currentDecoder,
+                                tempChunk.data(),
+                                (ma_uint64)targetChunkFrames,
+                                &framesRead);
+                        }
+                    }
                 }
             }
 
@@ -4645,6 +4744,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                     ma_resampler_reset(&e->pitchResampler);
                                     e->pitchInputUnconsumed = 0;
                                 }
+                                e->tempoProcessor.reset();
                             }
                             e->ringBufferFlushing.store(false, std::memory_order_release);
                         }
@@ -4652,7 +4752,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 }
             }
 
-            bool isRealEof = (r == MA_AT_END);
+            bool isRealEof = (r == MA_AT_END && framesRead == 0 && e->tempoProcessor.availableOutputFrames() == 0);
             if (!isRealEof && framesRead == 0 && e->currentDecoder != nullptr)
             {
                 sautiflow::StreamTelemetry tel = sautiflow::get_stream_telemetry_from_decoder(e->currentDecoder);
@@ -4872,10 +4972,10 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
     if (produced > 0)
     {
-        const float curPitch = e->pitchMultiplier.load(std::memory_order_relaxed);
-        const ma_uint64 sourceAdvance = (std::abs(curPitch - 1.0f) < 0.001f)
+        const float curRate = e->rateMultiplier.load(std::memory_order_relaxed);
+        const ma_uint64 sourceAdvance = (std::abs(curRate - 1.0f) < 0.001f)
                                         ? (ma_uint64)produced
-                                        : (ma_uint64)std::round((double)produced * (double)curPitch);
+                                        : (ma_uint64)std::round((double)produced * (double)curRate);
         e->playedPcmFrames.fetch_add(sourceAdvance, std::memory_order_relaxed);
         // Telemetry: count realtime starvation honestly.
         if (produced < frameCount)
@@ -6273,6 +6373,7 @@ extern "C"
                 ma_resampler_uninit(&e->pitchResampler, nullptr);
                 e->pitchResamplerInit = false;
             }
+            e->tempoProcessor.reset();
 
             // Cleanup Push Stream if allocated
             if (e->pushStreamForCurrent.initialized)
@@ -6703,6 +6804,7 @@ extern "C"
             ma_resampler_reset(&e->pitchResampler);
             e->pitchInputUnconsumed = 0;
         }
+        e->tempoProcessor.reset();
 #if defined(__ANDROID__)
         if (e->pAudioTrackSink != nullptr && e->activeBackend.load(std::memory_order_relaxed) >= AE_BACKEND_AUDIOTRACK)
         {
@@ -6751,6 +6853,7 @@ extern "C"
                 ma_resampler_reset(&e->pitchResampler);
                 e->pitchInputUnconsumed = 0;
             }
+            e->tempoProcessor.reset();
             clear_last_error(e);
         }
         e->ringBufferFlushing.store(false, std::memory_order_release);
@@ -7459,6 +7562,8 @@ extern "C"
         ps.gain = e->gain;
         ps.pan = e->pan;
         ps.pitch = e->pitchMultiplier.load(std::memory_order_relaxed);
+        ps.rate = e->rateMultiplier.load(std::memory_order_relaxed);
+        ps.pitch_correction_enabled = e->pitchCorrectionEnabled.load(std::memory_order_relaxed) ? 1 : 0;
         return ps;
     }
 
@@ -7595,17 +7700,59 @@ extern "C"
         e->pan.store(clampf(pan_minus1_to_plus1, -1.0f, 1.0f), std::memory_order_relaxed);
     }
 
+    AE_API void ae_set_rate(AudioEngineHandle *e, float rate)
+    {
+        if (e == nullptr)
+            return;
+        const float clamped = std::clamp(rate, 0.01f, 100.0f);
+        const float oldRate = e->rateMultiplier.load(std::memory_order_relaxed);
+        if (std::abs(clamped - oldRate) > 0.0005f)
+        {
+            e->rateMultiplier.store(clamped, std::memory_order_relaxed);
+            e->decodeProducerCv.notify_all();
+        }
+    }
+
+    AE_API float ae_get_rate(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 1.0f;
+        return e->rateMultiplier.load(std::memory_order_relaxed);
+    }
+
     AE_API void ae_set_pitch(AudioEngineHandle *e, float pitch)
     {
         if (e == nullptr)
             return;
-        const float clamped = std::max(0.01f, pitch);
+        const float clamped = std::clamp(pitch, 0.05f, 10.0f);
         const float oldPitch = e->pitchMultiplier.load(std::memory_order_relaxed);
-        if (std::abs(clamped - oldPitch) > 0.005f)
+        if (std::abs(clamped - oldPitch) > 0.0005f)
         {
             e->pitchMultiplier.store(clamped, std::memory_order_relaxed);
             e->decodeProducerCv.notify_all();
         }
+    }
+
+    AE_API float ae_get_pitch(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 1.0f;
+        return e->pitchMultiplier.load(std::memory_order_relaxed);
+    }
+
+    AE_API void ae_set_pitch_correction(AudioEngineHandle *e, int enabled)
+    {
+        if (e == nullptr)
+            return;
+        e->pitchCorrectionEnabled.store(enabled != 0, std::memory_order_relaxed);
+        e->decodeProducerCv.notify_all();
+    }
+
+    AE_API int ae_get_pitch_correction(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 1;
+        return e->pitchCorrectionEnabled.load(std::memory_order_relaxed) ? 1 : 0;
     }
 
     AE_API void ae_set_lowpass_enabled(AudioEngineHandle *e, int enabled)
@@ -8205,6 +8352,7 @@ extern "C"
                 }
                 e->pitchInputBuffer.clear();
                 e->pitchInputUnconsumed = 0;
+                e->tempoProcessor.reset();
             }
 
             // Scale absolute time counter to the new sample rate

@@ -113,6 +113,8 @@ extern "C"
         float gain;
         float pan;
         float pitch;
+        float rate;
+        int pitch_correction_enabled;
     } AEPipelineState;
 
     AE_API AudioEngineHandle *ae_create_engine(int sample_rate, int channels);
@@ -183,7 +185,12 @@ extern "C"
     AE_API void ae_set_gain(AudioEngineHandle *engine, float gain);
     AE_API void ae_set_replay_gain(AudioEngineHandle *engine, float gain_db);
     AE_API void ae_set_pan(AudioEngineHandle *engine, float pan_minus1_to_plus1);
+    AE_API void ae_set_rate(AudioEngineHandle *engine, float rate);
+    AE_API float ae_get_rate(AudioEngineHandle *engine);
     AE_API void ae_set_pitch(AudioEngineHandle *engine, float pitch);
+    AE_API float ae_get_pitch(AudioEngineHandle *engine);
+    AE_API void ae_set_pitch_correction(AudioEngineHandle *engine, int enabled);
+    AE_API int ae_get_pitch_correction(AudioEngineHandle *engine);
     AE_API void ae_set_lowpass_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_lowpass_cutoff(AudioEngineHandle *engine, float hz);
     AE_API void ae_set_highpass_enabled(AudioEngineHandle *engine, int enabled);

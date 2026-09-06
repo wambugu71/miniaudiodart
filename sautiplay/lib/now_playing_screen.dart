@@ -131,7 +131,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   double _dragPositionMs = 0.0;
   double? _pendingSeekMs; // non-null while seek is in-flight
   Timer? _seekTimeoutTimer;
+  double _currentRate = 1.0;
   double _currentPitch = 1.0;
+  bool _currentPitchCorrection = true;
 
   // ── Swipe-to-navigate transition direction ────────────────────────────────
   // 1 = swiped left (next), -1 = swiped right (prev), 0 = no swipe
@@ -248,11 +250,24 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Future<void> _loadPlaybackSpeed() async {
-    final pitch = await AppStateService.instance.loadPlaybackSpeed();
+    final rate = await AppStateService.instance.loadPlaybackRate();
+    final pitch = await AppStateService.instance.loadPlaybackPitch();
+    final pitchCorrection =
+        await AppStateService.instance.loadPitchCorrection();
     if (mounted) {
-      setState(() => _currentPitch = pitch);
+      setState(() {
+        _currentRate = rate;
+        _currentPitch = pitch;
+        _currentPitchCorrection = pitchCorrection;
+      });
+      if ((rate - 1.0).abs() > 0.01) {
+        widget.player.setRate(rate);
+      }
       if ((pitch - 1.0).abs() > 0.01) {
         widget.player.setPitch(pitch);
+      }
+      if (!pitchCorrection) {
+        widget.player.setPitchCorrection(pitchCorrection);
       }
     }
   }
@@ -507,17 +522,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   String _buildAudioInfoBadgeText(String trackPosition) {
     final posPart =
         trackPosition.trim().isNotEmpty ? '${trackPosition.trim()} ' : '';
-    final codecPart = (_detectedCodec != null && _detectedCodec!.isNotEmpty)
-        ? '${_detectedCodec!.toUpperCase()} '
-        : '';
     final depthPart = _originalBitDepth.isNotEmpty ? '$_originalBitDepth ' : '';
-    final bitratePart = _bitrateKbps > 0 ? ' • $_bitrateKbps kbps' : '';
-    final speedPart = (_currentPitch - 1.0).abs() > 0.01
-        ? ' ${_currentPitch.toStringAsFixed(2)}X'
-        : '';
-    return '$posPart$codecPart$depthPart$_sampleRate$bitratePart$speedPart'
-        .toUpperCase()
-        .trim();
+    return '$posPart$depthPart$_sampleRate'.toUpperCase().trim();
   }
 
   Future<void> _fetchLyrics() async {
@@ -1235,7 +1241,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
         const SizedBox(height: 12),
         Wrap(
-          spacing: 10,
+          spacing: 4,
           runSpacing: 10,
           children: [
             _buildSpecChip(Icons.api, 'Backend', specs.backendName),
@@ -1977,19 +1983,32 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   },
                                                 ),*/
                                                 M3EToolbarAction(
-                                                  icon: (_currentPitch - 1.0)
-                                                              .abs() >
-                                                          0.01
+                                                  icon: ((_currentRate - 1.0)
+                                                                  .abs() >
+                                                              0.01 ||
+                                                          (_currentPitch - 1.0)
+                                                                  .abs() >
+                                                              0.01)
                                                       ? Icons.speed_rounded
                                                       : Icons.speed_outlined,
                                                   onPressed: () =>
                                                       showPlaybackSpeedModal(
                                                     context,
                                                     widget.player,
+                                                    currentRate: _currentRate,
                                                     currentPitch: _currentPitch,
+                                                    currentPitchCorrection:
+                                                        _currentPitchCorrection,
+                                                    onRateChanged: (r) =>
+                                                        setState(() =>
+                                                            _currentRate = r),
                                                     onPitchChanged: (p) =>
                                                         setState(() =>
                                                             _currentPitch = p),
+                                                    onPitchCorrectionChanged:
+                                                        (pc) => setState(() =>
+                                                            _currentPitchCorrection =
+                                                                pc),
                                                   ),
                                                 ),
                                                 M3EToolbarAction(
@@ -2790,16 +2809,26 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                       // const SizedBox(width: 8),
                                       M3EIconButton(
                                         variant: M3EIconButtonVariant.tonal,
-                                        icon: Icon(
-                                            (_currentPitch - 1.0).abs() > 0.01
-                                                ? Icons.speed_rounded
-                                                : Icons.speed_outlined),
+                                        icon: Icon(((_currentRate - 1.0).abs() >
+                                                    0.01 ||
+                                                (_currentPitch - 1.0).abs() >
+                                                    0.01)
+                                            ? Icons.speed_rounded
+                                            : Icons.speed_outlined),
                                         onPressed: () => showPlaybackSpeedModal(
                                           context,
                                           widget.player,
+                                          currentRate: _currentRate,
                                           currentPitch: _currentPitch,
+                                          currentPitchCorrection:
+                                              _currentPitchCorrection,
+                                          onRateChanged: (r) =>
+                                              setState(() => _currentRate = r),
                                           onPitchChanged: (p) =>
                                               setState(() => _currentPitch = p),
+                                          onPitchCorrectionChanged: (pc) =>
+                                              setState(() =>
+                                                  _currentPitchCorrection = pc),
                                         ),
                                       ),
                                       const SizedBox(width: 8),

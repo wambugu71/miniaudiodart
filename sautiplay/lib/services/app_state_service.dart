@@ -959,16 +959,46 @@ class AppStateService {
   }
 
   // ─── Playback Speed & Pitch Settings ──────────────────────────────────────
+  static const _kPlaybackRate = 'sp_playback_rate';
   static const _kPlaybackPitch = 'sp_playback_pitch';
+  static const _kPitchCorrection = 'sp_pitch_correction';
 
-  Future<void> savePlaybackSpeed(double pitch) async {
+  Future<void> savePlaybackRate(double rate) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_kPlaybackRate, rate);
+  }
+
+  Future<double> loadPlaybackRate() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getDouble(_kPlaybackRate) ?? 1.0;
+  }
+
+  Future<void> savePlaybackPitch(double pitch) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_kPlaybackPitch, pitch);
   }
 
-  Future<double> loadPlaybackSpeed() async {
+  Future<double> loadPlaybackPitch() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getDouble(_kPlaybackPitch) ?? 1.0;
+  }
+
+  Future<void> savePitchCorrection(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kPitchCorrection, enabled);
+  }
+
+  Future<bool> loadPitchCorrection() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kPitchCorrection) ?? true;
+  }
+
+  Future<void> savePlaybackSpeed(double rate) async {
+    await savePlaybackRate(rate);
+  }
+
+  Future<double> loadPlaybackSpeed() async {
+    return loadPlaybackRate();
   }
 
   // ─── Speaker & Hardware Protection Settings ──────────────────────────────

@@ -541,7 +541,26 @@ class MiniAudioPlayer {
   double getVolumeDb() => _engine.getVolumeDb();
 
   void setPan(double pan) => _engine.setPan(pan);
-  void setPitch(double pitch) => _engine.setPitch(pitch);
+
+  /// Sets playback rate / speed (e.g. 1.0 = normal, 1.5 = 1.5x speed).
+  Future<void> setRate(double rate) async => _engine.setRate(rate);
+
+  /// Returns the current playback rate / speed.
+  double get rate => _engine.getRate();
+
+  /// Sets musical pitch factor (e.g. 1.0 = normal, 0.9 = lower pitch without affecting speed).
+  Future<void> setPitch(double pitch) async => _engine.setPitch(pitch);
+
+  /// Returns the current pitch factor.
+  double get pitch => _engine.getPitch();
+
+  /// Enables or disables pitch correction (scaletempo algorithm).
+  /// When enabled (default), changing speed preserves original pitch.
+  Future<void> setPitchCorrection(bool enabled) async =>
+      _engine.setPitchCorrection(enabled);
+
+  /// Returns whether pitch correction (scaletempo) is enabled.
+  bool get pitchCorrectionEnabled => _engine.getPitchCorrection();
 
   // --- Spatialization ---
   void setSpatializationEnabled(bool enabled) =>

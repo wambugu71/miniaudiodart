@@ -325,6 +325,10 @@ final class PipelineStateNative extends ffi.Struct {
   external double pan;
   @ffi.Float()
   external double pitch;
+  @ffi.Float()
+  external double rate;
+  @ffi.Int32()
+  external int pitch_correction_enabled;
 }
 
 final class AETrackInfoNative extends ffi.Struct {
@@ -765,6 +769,8 @@ typedef _SetIntNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _SetIntDart = void Function(ffi.Pointer<ffi.Void>, int);
 typedef _GetIntNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
 typedef _GetIntDart = int Function(ffi.Pointer<ffi.Void>);
+typedef _GetFloatNative = ffi.Float Function(ffi.Pointer<ffi.Void>);
+typedef _GetFloatDart = double Function(ffi.Pointer<ffi.Void>);
 
 typedef _SetAbRepeatNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Double, ffi.Double);
@@ -1380,6 +1386,8 @@ class PipelineAudioState {
   final double gain;
   final double pan;
   final double pitch;
+  final double rate;
+  final bool pitchCorrectionEnabled;
 
   const PipelineAudioState({
     required this.inputFormat,
@@ -1401,6 +1409,8 @@ class PipelineAudioState {
     required this.gain,
     required this.pan,
     required this.pitch,
+    this.rate = 1.0,
+    this.pitchCorrectionEnabled = true,
   });
 
   factory PipelineAudioState.fromNative(PipelineStateNative native) {
@@ -1424,6 +1434,8 @@ class PipelineAudioState {
       gain: native.gain,
       pan: native.pan,
       pitch: native.pitch,
+      rate: native.rate,
+      pitchCorrectionEnabled: native.pitch_correction_enabled != 0,
     );
   }
 
@@ -1448,6 +1460,8 @@ class PipelineAudioState {
       gain: 0.0,
       pan: 0.0,
       pitch: 0.0,
+      rate: 1.0,
+      pitchCorrectionEnabled: true,
     );
   }
 
@@ -1645,9 +1659,38 @@ class AudioEngineFFI {
     _setPan = _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
       'ae_set_pan',
     );
+    _setRate = _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
+      'ae_set_rate',
+    );
+    try {
+      _getRate = _lib.lookupFunction<_GetFloatNative, _GetFloatDart>(
+        'ae_get_rate',
+      );
+    } catch (_) {
+      _getRate = null;
+    }
     _setPitch = _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
       'ae_set_pitch',
     );
+    try {
+      _getPitch = _lib.lookupFunction<_GetFloatNative, _GetFloatDart>(
+        'ae_get_pitch',
+      );
+    } catch (_) {
+      _getPitch = null;
+    }
+    _setPitchCorrection =
+        _lib.lookupFunction<_SetSingleIntNative, _SetSingleIntDart>(
+      'ae_set_pitch_correction',
+    );
+    try {
+      _getPitchCorrection =
+          _lib.lookupFunction<_GetIntNative, _GetIntDart>(
+        'ae_get_pitch_correction',
+      );
+    } catch (_) {
+      _getPitchCorrection = null;
+    }
     _setLowpassEnabled =
         _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
       'ae_set_lowpass_enabled',
@@ -2222,7 +2265,12 @@ class AudioEngineFFI {
   late final _SetSingleFloatDart _setGain;
   _SetSingleFloatDart? _setReplayGain;
   late final _SetSingleFloatDart _setPan;
+  late final _SetSingleFloatDart _setRate;
+  _GetFloatDart? _getRate;
   late final _SetSingleFloatDart _setPitch;
+  _GetFloatDart? _getPitch;
+  late final _SetSingleIntDart _setPitchCorrection;
+  _GetIntDart? _getPitchCorrection;
   late final _SetFxEnabledDart _setLowpassEnabled;
   late final _SetSingleFloatDart _setLowpassCutoff;
   late final _SetFxEnabledDart _setHighpassEnabled;
@@ -3067,9 +3115,34 @@ class AudioEngineFFI {
     _setPan(_engine, panMinus1ToPlus1);
   }
 
+  void setRate(double rate) {
+    if (_engine == ffi.nullptr) return;
+    _setRate(_engine, rate);
+  }
+
+  double getRate() {
+    if (_engine == ffi.nullptr) return 1.0;
+    return _getRate?.call(_engine) ?? 1.0;
+  }
+
   void setPitch(double pitchMultiplier) {
     if (_engine == ffi.nullptr) return;
     _setPitch(_engine, pitchMultiplier);
+  }
+
+  double getPitch() {
+    if (_engine == ffi.nullptr) return 1.0;
+    return _getPitch?.call(_engine) ?? 1.0;
+  }
+
+  void setPitchCorrection(bool enabled) {
+    if (_engine == ffi.nullptr) return;
+    _setPitchCorrection(_engine, enabled ? 1 : 0);
+  }
+
+  bool getPitchCorrection() {
+    if (_engine == ffi.nullptr) return true;
+    return (_getPitchCorrection?.call(_engine) ?? 1) != 0;
   }
 
   void setLowpassEnabled(bool enabled) {

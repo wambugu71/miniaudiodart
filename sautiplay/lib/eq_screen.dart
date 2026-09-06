@@ -13,9 +13,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'isolate_player.dart';
 import 'services/app_state_service.dart';
 import 'widgets/app_showcase.dart';
+import 'widgets/clarity_graph.dart';
+import 'widgets/compressor_graph.dart';
+import 'widgets/crossfeed_graph.dart';
+import 'widgets/dynamic_bass_graph.dart';
+import 'widgets/dynamic_system_graph.dart';
+import 'widgets/graphic_eq_graph.dart';
 import 'widgets/parametric_eq_graph.dart';
 import 'widgets/playback_speed_modal.dart';
 import 'widgets/race_visualizer.dart';
+import 'widgets/stereo_vectorscope_graph.dart';
 
 import 'services/app_theme_service.dart';
 
@@ -950,8 +957,10 @@ class _EqScreenState extends State<EqScreen>
   double _masterLimiterOutputGainDb = 0.0;
   double _masterLimiterReleaseMs = 60.0;
 
-  // Playback Speed & Status
+  // Playback Speed, Pitch & Status
+  double _playbackRate = 1.0;
   double _playbackPitch = 1.0;
+  bool _playbackPitchCorrection = true;
   bool _isPlaying = false;
   StreamSubscription<PlayerStatus>? _statusSub;
 
@@ -1022,7 +1031,10 @@ class _EqScreenState extends State<EqScreen>
     final hideBanner = prefs.getBool('hide_eq_warning') ?? false;
 
     // Load all persisted EQ state
-    final speed = await AppStateService.instance.loadPlaybackSpeed();
+    final rate = await AppStateService.instance.loadPlaybackRate();
+    final pitch = await AppStateService.instance.loadPlaybackPitch();
+    final pitchCorrection =
+        await AppStateService.instance.loadPitchCorrection();
     final eqBands = await AppStateService.instance.loadEqBands();
     final crystalizer = await AppStateService.instance.loadCrystalizer();
     final stereoWiden = await AppStateService.instance.loadStereoWiden();
@@ -1037,7 +1049,9 @@ class _EqScreenState extends State<EqScreen>
 
     setState(() {
       _showWarningBanner = !hideBanner;
-      _playbackPitch = speed;
+      _playbackRate = rate;
+      _playbackPitch = pitch;
+      _playbackPitchCorrection = pitchCorrection;
 
       // EQ bands
       _masterEqEnabled = eqBands.enabled;
@@ -1874,7 +1888,15 @@ class _EqScreenState extends State<EqScreen>
 
       _preampDb = 0.0;
       widget.player.setGain(1.0); // 1.0 is 0dB
+      _playbackRate = 1.0;
+      _playbackPitch = 1.0;
+      _playbackPitchCorrection = true;
+      widget.player.setRate(1.0);
       widget.player.setPitch(1.0);
+      widget.player.setPitchCorrection(true);
+      AppStateService.instance.savePlaybackRate(1.0);
+      AppStateService.instance.savePlaybackPitch(1.0);
+      AppStateService.instance.savePitchCorrection(true);
 
       _parametricEqEnabled = false;
       _parametricBands.clear();
@@ -2391,19 +2413,41 @@ class _EqScreenState extends State<EqScreen>
                       );
                     }
                     if (index == 1) {
+                      final hasCustomRate = (_playbackRate - 1.0).abs() >= 0.01;
+                      final hasCustomPitch =
+                          (_playbackPitch - 1.0).abs() >= 0.01;
+                      final isActive = hasCustomRate || hasCustomPitch;
+                      String subtitle;
+                      if (hasCustomRate && hasCustomPitch) {
+                        subtitle =
+                            '${_playbackRate.toStringAsFixed(2)}x Speed • ${_playbackPitch.toStringAsFixed(2)}x Pitch';
+                      } else if (hasCustomRate) {
+                        subtitle =
+                            '${_playbackRate.toStringAsFixed(2)}x Speed${_playbackPitchCorrection ? ' (Scaletempo)' : ''}';
+                      } else if (hasCustomPitch) {
+                        subtitle =
+                            '${_playbackPitch.toStringAsFixed(2)}x Pitch';
+                      } else {
+                        subtitle = 'Normal Speed (1.0x)';
+                      }
+
                       return _buildEffectTileCard(
                         icon: Icons.speed_rounded,
                         shape: Shapes.sunny,
                         title: 'Playback Speed & Pitch',
-                        subtitle: (_playbackPitch - 1.0).abs() >= 0.01
-                            ? '${_playbackPitch.toStringAsFixed(2)}x Speed'
-                            : 'Normal Speed (1.0x)',
-                        isEnabled: (_playbackPitch - 1.0).abs() >= 0.01,
+                        subtitle: subtitle,
+                        isEnabled: isActive,
                         onToggle: (v) {
-                          final newPitch = v ? 1.25 : 1.0;
-                          setState(() => _playbackPitch = newPitch);
+                          final newRate = v ? 1.25 : 1.0;
+                          final newPitch = 1.0;
+                          setState(() {
+                            _playbackRate = newRate;
+                            _playbackPitch = newPitch;
+                          });
+                          widget.player.setRate(newRate);
                           widget.player.setPitch(newPitch);
-                          AppStateService.instance.savePlaybackSpeed(newPitch);
+                          AppStateService.instance.savePlaybackRate(newRate);
+                          AppStateService.instance.savePlaybackPitch(newPitch);
                         },
                         onTapDetail: () => _openDetailScreen(
                           'Playback Speed & Pitch',
@@ -3162,30 +3206,41 @@ class _EqScreenState extends State<EqScreen>
   }
 
   Widget _buildPlaybackSpeedSection() {
-    final isNormal = (_playbackPitch - 1.0).abs() < 0.01;
+    final hasCustomRate = (_playbackRate - 1.0).abs() >= 0.01;
+    final hasCustomPitch = (_playbackPitch - 1.0).abs() >= 0.01;
+    final isCustom = hasCustomRate || hasCustomPitch;
+
+    String subtitleText;
+    if (hasCustomRate && hasCustomPitch) {
+      subtitleText =
+          '${_playbackRate.toStringAsFixed(2)}x Speed • ${_playbackPitch.toStringAsFixed(2)}x Pitch';
+    } else if (hasCustomRate) {
+      subtitleText =
+          '${_playbackRate.toStringAsFixed(2)}x Speed${_playbackPitchCorrection ? ' (Scaletempo)' : ''}';
+    } else if (hasCustomPitch) {
+      subtitleText = '${_playbackPitch.toStringAsFixed(2)}x Pitch';
+    } else {
+      subtitleText = 'Normal Speed (1.0x)';
+    }
+
     return _CollapsibleSection(
-      icon: /*M3EContainer(
-        Shapes.sunny,
-        width: 40,
-        height: 40,
-        color: primaryColor.withValues(alpha: 0.18),
-        border: BorderSide(
-          color: primaryColor.withValues(alpha: 0.4),
-          width: 1.0,
-        ),
-        child: */
-          Center(
+      icon: Center(
         child: Icon(Icons.speed_rounded, color: primaryColor, size: 20),
       ),
-      // ),
       title: 'Speed & Pitch',
-      subtitle: '${_playbackPitch.toStringAsFixed(2)}x Speed',
-      isEnabled: !isNormal,
+      subtitle: subtitleText,
+      isEnabled: isCustom,
       onToggle: (v) {
-        final newPitch = v ? 1.25 : 1.0;
-        setState(() => _playbackPitch = newPitch);
+        final newRate = v ? 1.25 : 1.0;
+        final newPitch = 1.0;
+        setState(() {
+          _playbackRate = newRate;
+          _playbackPitch = newPitch;
+        });
+        widget.player.setRate(newRate);
         widget.player.setPitch(newPitch);
-        AppStateService.instance.savePlaybackSpeed(newPitch);
+        AppStateService.instance.savePlaybackRate(newRate);
+        AppStateService.instance.savePlaybackPitch(newPitch);
       },
       children: [
         Padding(
@@ -3193,27 +3248,43 @@ class _EqScreenState extends State<EqScreen>
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Speed: ${_playbackPitch.toStringAsFixed(2)}x',
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14.5,
-                    fontWeight: FontWeight.bold),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Speed: ${_playbackRate.toStringAsFixed(2)}x',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Pitch: ${_playbackPitch.toStringAsFixed(2)}x • ${_playbackPitchCorrection ? "Scaletempo ON" : "Resample Mode"}',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.6),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
               ),
               M3EButton.icon(
                 icon: Icon(Icons.tune_rounded, size: 16, color: primaryColor),
                 label:
                     Text('Adjust Speed', style: TextStyle(color: primaryColor)),
                 onPressed: () async {
-                  final res = await showPlaybackSpeedModal(
+                  await showPlaybackSpeedModal(
                     context,
                     widget.player,
+                    currentRate: _playbackRate,
                     currentPitch: _playbackPitch,
+                    currentPitchCorrection: _playbackPitchCorrection,
+                    onRateChanged: (r) => setState(() => _playbackRate = r),
                     onPitchChanged: (p) => setState(() => _playbackPitch = p),
+                    onPitchCorrectionChanged: (pc) =>
+                        setState(() => _playbackPitchCorrection = pc),
                   );
-                  if (res != null) {
-                    setState(() => _playbackPitch = res);
-                  }
                 },
               ),
             ],
@@ -3248,9 +3319,149 @@ class _EqScreenState extends State<EqScreen>
         _saveEqState();
       },
       children: [
-        // Band Count Segmented Selector
+        // 1. Sleek Preamp Control Strip
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: surfaceDarkerColor,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.08),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.volume_up_rounded,
+                size: 18,
+                color:
+                    _preampDb != 0.0 ? Colors.deepOrangeAccent : Colors.white60,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'PREAMP',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.8),
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: M3ESlider.centered(
+                  value: _preampDb.clamp(-12.0, 12.0),
+                  min: -12.0,
+                  max: 12.0,
+                  trackThickness: 8.0,
+                  cornerRadius: 6.0,
+                  onChanged: (v) {
+                    setState(() {
+                      _preampDb = v;
+                      double gain = math.pow(10, v / 20).toDouble();
+                      widget.player.setGain(gain);
+                    });
+                  },
+                  onChangeEnd: (_) => _saveEqState(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _preampDb = 0.0;
+                    widget.player.setGain(1.0);
+                  });
+                  _saveEqState();
+                },
+                onLongPress: () => _promptForValue(
+                  title: 'PREAMP',
+                  currentValue: _preampDb,
+                  min: -12.0,
+                  max: 12.0,
+                  onChanged: (v) {
+                    setState(() {
+                      _preampDb = v;
+                      double gain = math.pow(10, v / 20).toDouble();
+                      widget.player.setGain(gain);
+                    });
+                    _saveEqState();
+                  },
+                ),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.deepOrangeAccent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: Colors.deepOrangeAccent.withValues(alpha: 0.3),
+                    ),
+                  ),
+                  child: Text(
+                    '${_preampDb > 0 ? '+' : ''}${_preampDb.toStringAsFixed(1)} dB',
+                    style: const TextStyle(
+                      color: Colors.deepOrangeAccent,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        // 2. Interactive Spline Curve & Touch Node Controller
+        RepaintBoundary(
+          child: GraphicEqGraph(
+            frequencies: _eqFrequencies,
+            gains: _eqGains,
+            preampDb: _preampDb,
+            isEnabled: _masterEqEnabled,
+            height: 215.0,
+            primaryColor: primaryColor,
+            onBandChanged: (index, gain) {
+              if (!_masterEqEnabled) return;
+              setState(() {
+                _eqGains[index] = gain;
+                _activePreset = 'Custom';
+                widget.player.setMultibandEqBandGain(index, gain);
+              });
+            },
+            onBandChangeEnd: () {
+              if (_masterEqEnabled) _saveEqState();
+            },
+            onBandLongPress: (index) {
+              if (!_masterEqEnabled) return;
+              final freq = _eqFrequencies[index];
+              final label = freq >= 1000
+                  ? '${(freq / 1000).toStringAsFixed(freq % 1000 == 0 ? 0 : 1)}k'
+                  : '${freq.toInt()}Hz';
+              _promptForValue(
+                title: 'Band Gain ($label)',
+                currentValue: _eqGains[index],
+                min: -12.0,
+                max: 12.0,
+                onChanged: (v) {
+                  setState(() {
+                    _eqGains[index] = v;
+                    _activePreset = 'Custom';
+                    widget.player.setMultibandEqBandGain(index, v);
+                  });
+                  _saveEqState();
+                },
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        // 3. Band Count Segmented Selector
         Padding(
-          padding: const EdgeInsets.only(bottom: 14),
+          padding: const EdgeInsets.only(bottom: 12),
           child: M3ESegmentedButton<int>(
             segments: const [
               M3ESegment(value: 10, label: '10 Bands'),
@@ -3277,7 +3488,8 @@ class _EqScreenState extends State<EqScreen>
             },
           ),
         ),
-        // Preset Chips Row
+
+        // 4. Preset Chips Row
         SizedBox(
           height: 38,
           child: ListView(
@@ -3298,163 +3510,7 @@ class _EqScreenState extends State<EqScreen>
             ],
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.only(top: 24, bottom: 12),
-          child: _buildGraphicEqSliders(),
-        ),
       ],
-    );
-  }
-
-  Widget _buildGraphicEqSliders() {
-    return RepaintBoundary(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Preamp Slider (Independent of Graphic EQ toggle)
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 10),
-            child: Column(
-              children: [
-                SizedBox(
-                  height: 160,
-                  width: 44,
-                  child: M3ESlider.vertical(
-                    value: _preampDb,
-                    min: -12.0,
-                    max: 12.0,
-                    onChanged: (v) {
-                      setState(() {
-                        _preampDb = v;
-                        double gain = math.pow(10, v / 20).toDouble();
-                        widget.player.setGain(gain);
-                      });
-                    },
-                    onChangeEnd: (_) => _saveEqState(),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                GestureDetector(
-                  onLongPress: () => _promptForValue(
-                    title: 'PREAMP',
-                    currentValue: _preampDb,
-                    min: -12.0,
-                    max: 12.0,
-                    onChanged: (v) {
-                      setState(() {
-                        _preampDb = v;
-                        double gain = math.pow(10, v / 20).toDouble();
-                        widget.player.setGain(gain);
-                      });
-                      _saveEqState();
-                    },
-                  ),
-                  child: Text(
-                    '${_preampDb > 0 ? '+' : ''}${_preampDb.toStringAsFixed(1)} dB',
-                    style: const TextStyle(
-                      color: Colors.deepOrangeAccent,
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text('PREAMP',
-                    style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.45),
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold)),
-              ],
-            ),
-          ),
-          Container(
-            width: 1,
-            height: 190,
-            color: Colors.white.withValues(alpha: 0.1),
-            margin: const EdgeInsets.only(right: 6),
-          ),
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.start,
-                children: List.generate(_eqFrequencies.length, (i) {
-                  final freq = _eqFrequencies[i];
-                  String label = freq >= 1000
-                      ? '${(freq / 1000).toStringAsFixed(freq % 1000 == 0 ? 0 : 1)}k'
-                      : '${freq.toInt()}';
-
-                  return Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 10),
-                    child: Column(
-                      children: [
-                        SizedBox(
-                          height: 160,
-                          width: 44,
-                          child: M3ESlider.vertical(
-                            value: _eqGains[i],
-                            min: -12.0,
-                            max: 12.0,
-                            onChanged: _masterEqEnabled
-                                ? (v) {
-                                    setState(() {
-                                      _eqGains[i] = v;
-                                      _activePreset = 'Custom';
-                                      widget.player
-                                          .setMultibandEqBandGain(i, v);
-                                    });
-                                  }
-                                : null,
-                            onChangeEnd:
-                                _masterEqEnabled ? (_) => _saveEqState() : null,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        GestureDetector(
-                          onLongPress: _masterEqEnabled
-                              ? () => _promptForValue(
-                                    title: 'Band Gain ($label)',
-                                    currentValue: _eqGains[i],
-                                    min: -12.0,
-                                    max: 12.0,
-                                    onChanged: (v) {
-                                      setState(() {
-                                        _eqGains[i] = v;
-                                        _activePreset = 'Custom';
-                                        widget.player
-                                            .setMultibandEqBandGain(i, v);
-                                      });
-                                      _saveEqState();
-                                    },
-                                  )
-                              : null,
-                          child: Text(
-                            '${_eqGains[i] > 0 ? '+' : ''}${_eqGains[i].toStringAsFixed(1)} dB',
-                            style: TextStyle(
-                              color: _masterEqEnabled
-                                  ? primaryColor
-                                  : Colors.white24,
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(label,
-                            style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.45),
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                  );
-                }),
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -3652,6 +3708,19 @@ class _EqScreenState extends State<EqScreen>
         ),
         const SizedBox(height: 16),
         if (_crossfeedAlgorithmIndex >= 1 && _crossfeedAlgorithmIndex <= 4) ...[
+          RepaintBoundary(
+            child: CrossfeedGraph(
+              algorithmIndex: _crossfeedAlgorithmIndex,
+              mix: _crossfeedMix,
+              cutoffHz: _crossfeedCutoffHz,
+              delayMs: _crossfeedDelayMs,
+              compensation: _crossfeedCompensation,
+              isEnabled: _crossfeedEnabled,
+              height: 120.0,
+              primaryColor: primaryColor,
+            ),
+          ),
+          const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
@@ -3874,6 +3943,16 @@ class _EqScreenState extends State<EqScreen>
         _saveEqState();
       },
       children: [
+        RepaintBoundary(
+          child: StereoVectorscopeGraph(
+            width: _stereoWidenWidth,
+            delayMs: _stereoWidenDelayMs,
+            isEnabled: _stereoWidenEnabled,
+            height: 195.0,
+            primaryColor: primaryColor,
+          ),
+        ),
+        const SizedBox(height: 12),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
@@ -5169,6 +5248,19 @@ class _EqScreenState extends State<EqScreen>
             ),
           ],
         ),
+        const SizedBox(height: 10),
+        RepaintBoundary(
+          child: DynamicBassGraph(
+            profile: _bassProfile,
+            preset: _bassPreset,
+            cutoffHz: _bassCutoffHz,
+            gainDb: _bassGainDb,
+            boost: _bassBoost,
+            isEnabled: _bassEnabled,
+            height: 125.0,
+            primaryColor: primaryColor,
+          ),
+        ),
         if (_bassProfile == HarmonicBassProfile.dynamicMultiPole) ...[
           const SizedBox(height: 12),
           // 19 Preset Selection Dropdown
@@ -5497,7 +5589,17 @@ class _EqScreenState extends State<EqScreen>
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 10),
+        RepaintBoundary(
+          child: DynamicSystemGraph(
+            profile: _dynamicSystemProfile,
+            strength: _dynamicSystemStrength,
+            isEnabled: _dynamicSystemEnabled,
+            height: 120.0,
+            primaryColor: primaryColor,
+          ),
+        ),
+        const SizedBox(height: 14),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
@@ -5585,6 +5687,16 @@ class _EqScreenState extends State<EqScreen>
               ),
             ),
           ],
+        ),
+        const SizedBox(height: 10),
+        RepaintBoundary(
+          child: ClarityGraph(
+            profile: _clarityProfile,
+            intensity: _clarityIntensity,
+            isEnabled: _clarityEnabled,
+            height: 125.0,
+            primaryColor: primaryColor,
+          ),
         ),
         const SizedBox(height: 16),
         Row(
@@ -7258,6 +7370,19 @@ class _EqScreenState extends State<EqScreen>
         _saveEqState();
       },
       children: [
+        RepaintBoundary(
+          child: CompressorTransferGraph(
+            thresholdDb: _compressorThresholdDb,
+            ratio: _compressorRatio,
+            kneeDb: _compressorKneeDb,
+            makeupGainDb: _compressorMakeupGainDb,
+            gainReductionDb: _compressorGainReductionDb,
+            isEnabled: _compressorEnabled,
+            height: 135.0,
+            primaryColor: primaryColor,
+          ),
+        ),
+        const SizedBox(height: 10),
         // Live Gain Reduction Meter
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
