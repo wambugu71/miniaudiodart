@@ -13,6 +13,8 @@ enum ResampleAlgorithm {
   soxrVHQMinimumPhase,
   soxrHQ,
   soxrFast,
+  r8brain24LinearPhase,
+  r8brain24MinimumPhase,
 }
 
 enum DitherMode {

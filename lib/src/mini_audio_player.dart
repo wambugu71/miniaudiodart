@@ -970,6 +970,14 @@ class MiniAudioPlayer {
   /// Fetch unified quality telemetry snapshot.
   AEQualityTelemetry getQualityTelemetry() => _engine.getQualityTelemetry();
 
+  /// Fetch resampling policy info snapshot (latency, passband ratio, linear phase status, bypass state).
+  AEResamplingPolicyInfo getResamplingPolicyInfo() =>
+      _engine.getResamplingPolicyInfo();
+
+  /// Resampling policy info getter.
+  AEResamplingPolicyInfo get resamplingPolicyInfo =>
+      _engine.getResamplingPolicyInfo();
+
   /// Returns current linear output gain.
   double getGain() => _engine.getGain();
 

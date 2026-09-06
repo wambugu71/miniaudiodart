@@ -712,6 +712,84 @@ class AEQualityTelemetry {
   }
 }
 
+final class AEResamplingPolicyInfoNative extends ffi.Struct {
+  @ffi.Int32()
+  external int is_bypassed;
+  @ffi.Int32()
+  external int mode;
+  @ffi.Int32()
+  external int input_sample_rate;
+  @ffi.Int32()
+  external int engine_sample_rate;
+  @ffi.Int32()
+  external int device_sample_rate;
+  @ffi.Double()
+  external double resampler_latency_ms;
+  @ffi.Double()
+  external double filter_passband_ratio;
+  @ffi.Int32()
+  external int is_linear_phase;
+}
+
+class AEResamplingPolicyInfo {
+  final bool isBypassed;
+  final int mode;
+  final int inputSampleRate;
+  final int engineSampleRate;
+  final int deviceSampleRate;
+  final double resamplerLatencyMs;
+  final double filterPassbandRatio;
+  final bool isLinearPhase;
+
+  const AEResamplingPolicyInfo({
+    this.isBypassed = true,
+    this.mode = 0,
+    this.inputSampleRate = 0,
+    this.engineSampleRate = 0,
+    this.deviceSampleRate = 0,
+    this.resamplerLatencyMs = 0.0,
+    this.filterPassbandRatio = 0.0,
+    this.isLinearPhase = false,
+  });
+
+  factory AEResamplingPolicyInfo.fromNative(AEResamplingPolicyInfoNative native) {
+    return AEResamplingPolicyInfo(
+      isBypassed: native.is_bypassed != 0,
+      mode: native.mode,
+      inputSampleRate: native.input_sample_rate,
+      engineSampleRate: native.engine_sample_rate,
+      deviceSampleRate: native.device_sample_rate,
+      resamplerLatencyMs: native.resampler_latency_ms,
+      filterPassbandRatio: native.filter_passband_ratio,
+      isLinearPhase: native.is_linear_phase != 0,
+    );
+  }
+
+  @override
+  String toString() =>
+      'AEResamplingPolicyInfo(isBypassed: $isBypassed, mode: $mode, '
+      'inputRate: $inputSampleRate, engineRate: $engineSampleRate, '
+      'deviceRate: $deviceSampleRate, latencyMs: ${resamplerLatencyMs.toStringAsFixed(2)}, '
+      'passband: $filterPassbandRatio, linearPhase: $isLinearPhase)';
+}
+
+/// Audio Engine Resampler algorithms (matches AEResampleAlgorithm in audio_engine.h).
+enum AEResampleAlgorithm {
+  miniaudioLinear,
+  srcSincBestQuality,
+  srcSincMediumQuality,
+  srcSincFastest,
+  srcZeroOrderHold,
+  srcLinear,
+  custom,
+  soxrVHQLinearPhase,
+  soxrVHQMinimumPhase,
+  soxrHQ,
+  soxrFast,
+  r8brain24LinearPhase,
+  r8brain24MinimumPhase,
+}
+
 typedef _CreateEngineNative = ffi.Pointer<ffi.Void> Function(
     ffi.Int32, ffi.Int32);
 typedef _CreateEngineDart = ffi.Pointer<ffi.Void> Function(int, int);
@@ -1112,6 +1190,11 @@ typedef _GetLookaheadLimiterGainReductionDbDart = double Function(
 typedef _GetQualityTelemetryNative = AEQualityTelemetryNative Function(
     ffi.Pointer<ffi.Void>);
 typedef _GetQualityTelemetryDart = AEQualityTelemetryNative Function(
+    ffi.Pointer<ffi.Void>);
+
+typedef _GetResamplingPolicyInfoNative = AEResamplingPolicyInfoNative Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetResamplingPolicyInfoDart = AEResamplingPolicyInfoNative Function(
     ffi.Pointer<ffi.Void>);
 
 typedef _GetOutputChannelsNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
@@ -2150,6 +2233,9 @@ class AudioEngineFFI {
           'ae_get_lookahead_limiter_gain_reduction_db');
       _getQualityTelemetry = _lib.lookupFunction<_GetQualityTelemetryNative,
           _GetQualityTelemetryDart>('ae_get_quality_telemetry');
+      _getResamplingPolicyInfo = _lib.lookupFunction<
+          _GetResamplingPolicyInfoNative,
+          _GetResamplingPolicyInfoDart>('ae_get_resampling_policy_info');
     } catch (_) {
       _getLoudnessMetrics = null;
       _resetLoudnessMeter = null;
@@ -2163,6 +2249,7 @@ class AudioEngineFFI {
       _setLookaheadLimiterParams = null;
       _getLookaheadLimiterGainReductionDb = null;
       _getQualityTelemetry = null;
+      _getResamplingPolicyInfo = null;
     }
     _getAnalyzerDroppedFrames = _lib.lookupFunction<
         _GetAnalyzerDroppedFramesNative,
@@ -2427,6 +2514,7 @@ class AudioEngineFFI {
   _SetLookaheadLimiterParamsDart? _setLookaheadLimiterParams;
   _GetLookaheadLimiterGainReductionDbDart? _getLookaheadLimiterGainReductionDb;
   _GetQualityTelemetryDart? _getQualityTelemetry;
+  _GetResamplingPolicyInfoDart? _getResamplingPolicyInfo;
 
   ffi.Pointer<ffi.Void> _engine;
   ffi.Pointer<ffi.Void> get enginePointer => _engine;
@@ -3991,6 +4079,15 @@ class AudioEngineFFI {
     }
     final native = _getQualityTelemetry!(_engine);
     return AEQualityTelemetry.fromNative(native);
+  }
+
+  /// Fetch resampling policy info snapshot (latency, passband, linear-phase status, bypass state).
+  AEResamplingPolicyInfo getResamplingPolicyInfo() {
+    if (_getResamplingPolicyInfo == null || _engine == ffi.nullptr) {
+      return const AEResamplingPolicyInfo();
+    }
+    final native = _getResamplingPolicyInfo!(_engine);
+    return AEResamplingPolicyInfo.fromNative(native);
   }
 
   void initMultibandEq(

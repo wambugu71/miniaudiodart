@@ -282,6 +282,7 @@ class _AudioEngineDiagnosticPanelState
       stereoEnhanceOn: stereoEnhanceOn,
       sautiDspOn: sautiDspOn,
       isSrcActive: (srcRate != dacRate),
+      resampleLatencyMs: (t['resampleLatencyMs'] as num?)?.toDouble(),
       deviceType: specs.deviceType,
     );
 
@@ -863,6 +864,7 @@ class _AudioEngineDiagnosticPanelState
     required bool stereoEnhanceOn,
     required bool sautiDspOn,
     required bool isSrcActive,
+    double? resampleLatencyMs,
     String? deviceType,
   }) {
     final list = <_NodeLatencyInfo>[];
@@ -918,7 +920,9 @@ class _AudioEngineDiagnosticPanelState
 
     // 7. Resampler Node
     if (isSrcActive) {
-      const double resampleMs = 0.50;
+      final double resampleMs = (resampleLatencyMs != null && resampleLatencyMs > 0.0)
+          ? resampleLatencyMs
+          : 0.50;
       final double samples = resampleMs * 0.001 * sampleRate;
       list.add(
           _NodeLatencyInfo('${step++}.', 'SRC Resampler', resampleMs, samples));
@@ -953,6 +957,10 @@ class _AudioEngineDiagnosticPanelState
         return 'SOXR HQ';
       case 'soxrFast':
         return 'SOXR Fast';
+      case 'r8brain24LinearPhase':
+        return 'r8brain Linear Phase';
+      case 'r8brain24MinimumPhase':
+        return 'r8brain Minimum Phase';
       default:
         return algo;
     }

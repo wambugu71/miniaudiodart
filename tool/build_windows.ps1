@@ -40,6 +40,7 @@ $includes = @(
     "-Ithird_party/libsamplerate/include",
     "-Ithird_party/libsoxr/include",
     "-Ithird_party/libsoxr/src",
+    "-Ithird_party/r8brain",
     "-Ithird_party/ffmpeg/include"
 )
 

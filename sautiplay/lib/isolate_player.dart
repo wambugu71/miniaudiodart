@@ -1930,6 +1930,7 @@ void _isolateEntry(_IsolateInitData initData) {
             final ms = player.engineLatencyMs;
             final devMs = player.deviceLatencyMs;
             final clipped = player.getClippedSamplesCount();
+            final resamplePolicy = player.getResamplingPolicyInfo();
             final resampleAlgo = player.getEngineResampleAlgorithm().name;
             final crossfeedParams = player.getCrossfeedParams();
             final dspOn = ps.eqEnabled || ps.limiterEnabled || ps.reverbEnabled;
@@ -2000,6 +2001,10 @@ void _isolateEntry(_IsolateInitData initData) {
               'deviceLatencyMs': devMs,
               'clippedCount': clipped,
               'resampleAlgorithm': resampleAlgo,
+              'resampleLatencyMs': resamplePolicy.resamplerLatencyMs,
+              'resampleIsLinearPhase': resamplePolicy.isLinearPhase,
+              'resampleIsBypassed': resamplePolicy.isBypassed,
+              'resampleFilterPassbandRatio': resamplePolicy.filterPassbandRatio,
               'crossfeedAlgo': crossfeedParams.algorithm.name,
               'crossfeedMix': crossfeedParams.mix,
               'crossfeedDelayMs': crossfeedParams.delayMs,

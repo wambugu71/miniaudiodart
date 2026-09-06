@@ -21,6 +21,7 @@ import 'services/cached_stream_service.dart';
 import 'services/lastfm_service.dart';
 import 'streaming_service.dart';
 import 'widgets/album_art_shape_selector.dart';
+import 'widgets/audio_engine_diagnostic_panel.dart';
 
 class SettingsScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
@@ -272,9 +273,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ? 'SoX VHQ'
         : _resampleAlgorithm == 9
             ? 'SoX HQ'
-            : _resampleAlgorithm == 1
-                ? 'Master HD'
-                : 'Linear';
+            : _resampleAlgorithm == 11
+                ? 'r8brain LP'
+                : _resampleAlgorithm == 12
+                    ? 'r8brain MP'
+                    : _resampleAlgorithm == 1
+                        ? 'Master HD'
+                        : 'Linear';
     return '$depth • $resamplerShort';
   }
 
@@ -1263,7 +1268,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return _buildSubScreenLayout(
           title: 'Audio & Processing',
           children: [
-            /* _buildSectionHeader('DIAGNOSTICS & TELEMETRY'),
+            _buildSectionHeader('DIAGNOSTICS & TELEMETRY'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
@@ -1271,17 +1276,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   headline: 'Audio Engine Diagnostic Panel',
                   supportingText:
                       'Real-time telemetry, PDC latency & "Why is this track resampled?" explainer',
-                  leading: /*M3EContainer(
-                    Shapes.pill,
-                    width: 40,
-                    height: 40,
-                    color: Colors.cyanAccent.withAlpha(35),
-                    child: */
-                      const Center(
-                    child: Icon(Icons.monitor_heart_rounded,
-                        color: Colors.cyanAccent, size: 20),
-                    // ),
-                  ),
+                  leading: _buildLeadingIcon(Icons.monitor_heart_outlined),
                   trailing: const Icon(Icons.chevron_right_rounded,
                       color: Colors.cyanAccent, size: 22),
                   onTap: () {
@@ -1289,7 +1284,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
               ],
-            ),*/
+            ),
             const SizedBox(height: 20),
             _buildSectionHeader('RESAMPLING & DITHERING'),
             const SizedBox(height: 8),
@@ -1297,6 +1292,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 M3EListItem(
                   headline: 'Resampler',
+                  supportingText:
+                      _getResampleAlgorithmSupportingText(_resampleAlgorithm),
                   leading: _buildLeadingIcon(Icons.memory),
                   trailing: SizedBox(
                     width: 170,
@@ -1305,7 +1302,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         Expanded(
                           child: Text(
-                            _getResampleAlgorithmName(_resampleAlgorithm),
+                            _getResampleAlgorithmShortName(_resampleAlgorithm),
                             style: TextStyle(color: _textDark, fontSize: 13),
                             textAlign: TextAlign.right,
                             overflow: TextOverflow.ellipsis,
@@ -4133,8 +4130,74 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return 'SoX High Quality';
       case 10:
         return 'SoX Fast Quality';
+      case 11:
+        return 'r8brain 24-bit Linear Phase (Mastering)';
+      case 12:
+        return 'r8brain 24-bit Minimum Phase (Zero Pre-Ring)';
       default:
         return 'Linear Standard (Fast & Smooth)';
+    }
+  }
+
+  String _getResampleAlgorithmShortName(int index) {
+    switch (index) {
+      case 0:
+        return 'Linear';
+      case 1:
+        return 'Master HD';
+      case 2:
+        return 'Sinc HQ';
+      case 3:
+        return 'Sinc Good';
+      case 4:
+        return 'Step / Hold';
+      case 5:
+        return 'Linear Ext';
+      case 7:
+        return 'SoX VHQ (LP)';
+      case 8:
+        return 'SoX VHQ (MP)';
+      case 9:
+        return 'SoX HQ';
+      case 10:
+        return 'SoX Fast';
+      case 11:
+        return 'r8brain (LP)';
+      case 12:
+        return 'r8brain (MP)';
+      default:
+        return 'Linear';
+    }
+  }
+
+  String _getResampleAlgorithmSupportingText(int index) {
+    switch (index) {
+      case 0:
+        return 'Linear standard interpolation';
+      case 1:
+        return 'Sinc master ultra HD (640 taps)';
+      case 2:
+        return 'Sinc high quality (libsamplerate)';
+      case 3:
+        return 'Sinc good quality (libsamplerate)';
+      case 4:
+        return 'Step / hold (lo-fi vintage)';
+      case 5:
+        return 'Linear extended interpolation';
+      case 7:
+        return 'SoX VHQ linear phase (175dB SNR)';
+      case 8:
+        return 'SoX VHQ minimum phase (zero pre-ring)';
+      case 9:
+        return 'SoX high quality (160dB SNR)';
+      case 10:
+        return 'SoX fast quality (120dB SNR)';
+      case 11:
+        return 'r8brain 24-bit linear phase (>160dB SNR)';
+      case 12:
+        return 'r8brain 24-bit min-phase (zero pre-ring)';
+      default:
+        return 'Audio sample rate conversion';
     }
   }
 
@@ -4327,6 +4390,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'isHeavy': true,
       },
       {
+        'index': 11,
+        'name': 'r8brain 24-bit Linear Phase (Mastering)',
+        'subtitle':
+            'Voxengo r8brain (>160dB SNR). Pristine mastering-grade linear phase conversion.',
+        'badge': isMobile ? '⚠️ High CPU' : 'r8brain LP',
+        'isHeavy': true,
+      },
+      {
+        'index': 12,
+        'name': 'r8brain 24-bit Minimum Phase (Zero Pre-Ring)',
+        'subtitle':
+            'Voxengo r8brain minimum phase filter. Eliminates pre-ringing with natural transient response.',
+        'badge': isMobile ? '⚠️ High CPU' : 'r8brain MP',
+        'isHeavy': true,
+      },
+      {
         'index': 3,
         'name': 'Sinc Good Quality (libsamplerate)',
         'subtitle': 'Band-limited sinc filter (97dB SNR). Efficient & clean.',
@@ -4448,6 +4527,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showMobileResamplerWarningDialog(
       int requestedIndex, VoidCallback? onDone) {
+    final name = _getResampleAlgorithmName(requestedIndex);
+    final String techDetails;
+    if (requestedIndex == 11 || requestedIndex == 12) {
+      techDetails =
+          '$name performs multi-stage convolution (>160dB SNR). On mobile devices, this may increase CPU usage.';
+    } else if (requestedIndex == 1) {
+      techDetails =
+          '$name calculates 640 filter taps per sample. On mobile devices, this may cause stuttering or battery drain.';
+    } else {
+      techDetails =
+          '$name uses high-precision DSP filtering. On mobile devices, this may cause battery drain.';
+    }
+
     M3EDialog.show<void>(
       context,
       dialog: M3EDialog(
@@ -4455,7 +4547,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const EdgeInsets.symmetric(vertical: 16.0, horizontal: 8.0),
         title: 'High CPU Resampler Warning',
         content: Text(
-          '${_getResampleAlgorithmName(requestedIndex)} calculates 640 filter taps per sample. On mobile devices, this may cause stuttering or battery drain.\n\nDo you want to enable it anyway or stay with Linear Standard (Recommended)?',
+          '$techDetails\n\nDo you want to enable it anyway or stay with Linear Standard (Recommended)?',
           style: TextStyle(color: _textDark, fontSize: 13, height: 1.4),
         ),
         actions: [

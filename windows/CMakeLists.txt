@@ -44,6 +44,7 @@ target_include_directories(audio_engine PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libsamplerate/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libsoxr/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libsoxr/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/r8brain
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/ffmpeg/include
 )
 

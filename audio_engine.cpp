@@ -33,6 +33,7 @@
 #include "reverb_node.h"
 #include <samplerate.h>
 #include <soxr.h>
+#include "CDSPResampler.h"
 #include "mp4_aac_decoder.h"
 #include "ffmpeg_stream_decoder.h"
 #include "dsp/clarity_dsp.h"
@@ -980,6 +981,310 @@ namespace
         soxr_onGetRequiredInputFrameCount,
         soxr_onGetExpectedOutputFrameCount,
         soxr_onReset
+    };
+
+    struct R8brainBackend
+    {
+        double ratio = 1.0;
+        double sampleRateIn = 48000.0;
+        double sampleRateOut = 48000.0;
+        int channels = 2;
+        int algorithm = 11;
+        int maxInLen = 4096;
+        std::vector<r8b::CDSPResampler *> resamplers;
+        std::vector<std::vector<double>> inBufs;
+        std::vector<double *> outPtrs;
+        std::vector<float> outputFifo;
+        size_t fifoReadPos = 0;
+    };
+
+    static ma_result r8b_onGetHeapSize(void *pUserData, const ma_resampler_config *pConfig, size_t *pHeapSizeInBytes)
+    {
+        if (!pHeapSizeInBytes)
+            return MA_INVALID_ARGS;
+        *pHeapSizeInBytes = sizeof(R8brainBackend);
+        return MA_SUCCESS;
+    }
+
+    static ma_result r8b_onInit(void *pUserData, const ma_resampler_config *pConfig, void *pAllocation, ma_resampling_backend **ppBackend)
+    {
+        if (!pConfig || !pAllocation || !ppBackend)
+            return MA_INVALID_ARGS;
+
+        R8brainBackend *backend = new (pAllocation) R8brainBackend();
+        backend->channels = (pConfig->channels > 0) ? (int)pConfig->channels : 2;
+        backend->sampleRateIn = (pConfig->sampleRateIn > 0) ? (double)pConfig->sampleRateIn : ((pConfig->sampleRateOut > 0) ? (double)pConfig->sampleRateOut : 48000.0);
+        backend->sampleRateOut = (pConfig->sampleRateOut > 0) ? (double)pConfig->sampleRateOut : 48000.0;
+        backend->ratio = (backend->sampleRateIn > 0.0) ? (backend->sampleRateOut / backend->sampleRateIn) : 1.0;
+
+        int algo = pUserData ? *(int *)pUserData : 11;
+        backend->algorithm = algo;
+
+        backend->maxInLen = 4096;
+        const double reqTransBand = 2.0;
+        const double reqAtten = 180.15;
+        const r8b::EDSPFilterPhaseResponse phase = (algo == 12) ? r8b::fprMinPhase : r8b::fprLinearPhase;
+
+        backend->resamplers.resize(backend->channels, nullptr);
+        backend->inBufs.resize(backend->channels);
+        backend->outPtrs.resize(backend->channels, nullptr);
+
+        for (int c = 0; c < backend->channels; ++c)
+        {
+            backend->inBufs[c].resize(backend->maxInLen, 0.0);
+            backend->resamplers[c] = new r8b::CDSPResampler(
+                backend->sampleRateIn,
+                backend->sampleRateOut,
+                backend->maxInLen,
+                reqTransBand,
+                reqAtten,
+                phase
+            );
+        }
+
+        *ppBackend = (ma_resampling_backend *)backend;
+        return MA_SUCCESS;
+    }
+
+    static void r8b_onUninit(void *pUserData, ma_resampling_backend *pBackend, const ma_allocation_callbacks *pAllocationCallbacks)
+    {
+        R8brainBackend *backend = (R8brainBackend *)pBackend;
+        if (backend)
+        {
+            for (auto *r : backend->resamplers)
+            {
+                delete r;
+            }
+            backend->resamplers.clear();
+            backend->~R8brainBackend();
+        }
+    }
+
+    static ma_result r8b_onProcess(void *pUserData, ma_resampling_backend *pBackend, const void *pFramesIn, ma_uint64 *pFrameCountIn, void *pFramesOut, ma_uint64 *pFrameCountOut)
+    {
+        R8brainBackend *backend = (R8brainBackend *)pBackend;
+        if (!backend || !pFrameCountIn || !pFrameCountOut)
+            return MA_ERROR;
+
+        const int ch = backend->channels;
+        if (ch <= 0)
+            return MA_ERROR;
+
+        // 1:1 Fast-path identity copy
+        if (std::fabs(backend->ratio - 1.0) < 1.0e-5 && pFramesIn != nullptr && pFramesOut != nullptr && backend->outputFifo.empty())
+        {
+            ma_uint64 toCopy = std::min(*pFrameCountIn, *pFrameCountOut);
+            std::memcpy(pFramesOut, pFramesIn, (size_t)toCopy * (size_t)ch * sizeof(float));
+            *pFrameCountIn = toCopy;
+            *pFrameCountOut = toCopy;
+            return MA_SUCCESS;
+        }
+
+        float *outDst = (float *)pFramesOut;
+        const float *inSrc = (const float *)pFramesIn;
+        ma_uint64 outTarget = *pFrameCountOut;
+        ma_uint64 outProduced = 0;
+
+        // Step 1: Drain any previously buffered frames from outputFifo
+        if (!backend->outputFifo.empty())
+        {
+            size_t fifoFrames = (backend->outputFifo.size() - backend->fifoReadPos) / (size_t)ch;
+            size_t toDrain = std::min<size_t>(fifoFrames, (size_t)(outTarget - outProduced));
+            if (toDrain > 0)
+            {
+                if (outDst != nullptr)
+                {
+                    std::memcpy(outDst + outProduced * (size_t)ch,
+                                backend->outputFifo.data() + backend->fifoReadPos,
+                                toDrain * (size_t)ch * sizeof(float));
+                }
+                backend->fifoReadPos += toDrain * (size_t)ch;
+                outProduced += toDrain;
+                if (backend->fifoReadPos >= backend->outputFifo.size())
+                {
+                    backend->outputFifo.clear();
+                    backend->fifoReadPos = 0;
+                }
+            }
+        }
+
+        if (outProduced >= outTarget || !pFramesIn || *pFrameCountIn == 0)
+        {
+            *pFrameCountIn = 0;
+            *pFrameCountOut = outProduced;
+            return MA_SUCCESS;
+        }
+
+        // Step 2: Feed input chunk to r8brain
+        size_t inFramesToProcess = std::min<size_t>((size_t)*pFrameCountIn, (size_t)backend->maxInLen);
+
+        for (size_t i = 0; i < inFramesToProcess; ++i)
+        {
+            for (int c = 0; c < ch; ++c)
+            {
+                backend->inBufs[c][i] = (double)inSrc[i * (size_t)ch + (size_t)c];
+            }
+        }
+
+        int genFrames = 0;
+        for (int c = 0; c < ch; ++c)
+        {
+            genFrames = backend->resamplers[c]->process(backend->inBufs[c].data(), (int)inFramesToProcess, backend->outPtrs[c]);
+        }
+
+        if (genFrames > 0)
+        {
+            size_t availableOutSpace = (size_t)(outTarget - outProduced);
+            size_t directCopy = std::min<size_t>((size_t)genFrames, availableOutSpace);
+
+            if (outDst != nullptr && directCopy > 0)
+            {
+                for (size_t i = 0; i < directCopy; ++i)
+                {
+                    for (int c = 0; c < ch; ++c)
+                    {
+                        outDst[(outProduced + i) * (size_t)ch + (size_t)c] = (float)backend->outPtrs[c][i];
+                    }
+                }
+                outProduced += directCopy;
+            }
+
+            if ((size_t)genFrames > directCopy)
+            {
+                size_t excess = (size_t)genFrames - directCopy;
+                size_t oldSize = backend->outputFifo.size();
+                backend->outputFifo.resize(oldSize + excess * (size_t)ch);
+                for (size_t i = 0; i < excess; ++i)
+                {
+                    for (int c = 0; c < ch; ++c)
+                    {
+                        backend->outputFifo[oldSize + i * (size_t)ch + (size_t)c] = (float)backend->outPtrs[c][directCopy + i];
+                    }
+                }
+            }
+        }
+
+        *pFrameCountIn = (ma_uint64)inFramesToProcess;
+        *pFrameCountOut = outProduced;
+        return MA_SUCCESS;
+    }
+
+    static ma_result r8b_onSetRate(void *pUserData, ma_resampling_backend *pBackend, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut)
+    {
+        R8brainBackend *backend = (R8brainBackend *)pBackend;
+        if (!backend || sampleRateIn == 0 || sampleRateOut == 0)
+            return MA_ERROR;
+
+        backend->sampleRateIn = (double)sampleRateIn;
+        backend->sampleRateOut = (double)sampleRateOut;
+        backend->ratio = backend->sampleRateOut / backend->sampleRateIn;
+
+        const double reqTransBand = 2.0;
+        const double reqAtten = 180.15;
+        const r8b::EDSPFilterPhaseResponse phase = (backend->algorithm == 12) ? r8b::fprMinPhase : r8b::fprLinearPhase;
+
+        for (int c = 0; c < backend->channels; ++c)
+        {
+            delete backend->resamplers[c];
+            backend->resamplers[c] = new r8b::CDSPResampler(
+                backend->sampleRateIn,
+                backend->sampleRateOut,
+                backend->maxInLen,
+                reqTransBand,
+                reqAtten,
+                phase
+            );
+        }
+        backend->outputFifo.clear();
+        backend->fifoReadPos = 0;
+        return MA_SUCCESS;
+    }
+
+    static ma_uint64 r8b_onGetInputLatency(void *pUserData, const ma_resampling_backend *pBackend)
+    {
+        const R8brainBackend *backend = (const R8brainBackend *)pBackend;
+        if (!backend || backend->resamplers.empty() || !backend->resamplers[0])
+            return 0;
+        int lat = backend->resamplers[0]->getInLenBeforeOutPos(0);
+        return (ma_uint64)(lat >= 0 ? lat : 0);
+    }
+
+    static ma_uint64 r8b_onGetOutputLatency(void *pUserData, const ma_resampling_backend *pBackend)
+    {
+        const R8brainBackend *backend = (const R8brainBackend *)pBackend;
+        if (!backend || backend->resamplers.empty() || !backend->resamplers[0] || backend->ratio <= 0.0)
+            return 0;
+        int lat = backend->resamplers[0]->getLatency();
+        return (ma_uint64)(lat >= 0 ? lat : 0);
+    }
+
+    static ma_result r8b_onGetRequiredInputFrameCount(void *pUserData, const ma_resampling_backend *pBackend, ma_uint64 outputFrameCount, ma_uint64 *pInputFrameCount)
+    {
+        const R8brainBackend *backend = (const R8brainBackend *)pBackend;
+        if (!pInputFrameCount)
+            return MA_INVALID_ARGS;
+        if (!backend || backend->ratio <= 0.0)
+        {
+            *pInputFrameCount = outputFrameCount;
+        }
+        else
+        {
+            *pInputFrameCount = (ma_uint64)std::ceil((double)outputFrameCount / backend->ratio);
+        }
+        return MA_SUCCESS;
+    }
+
+    static ma_result r8b_onGetExpectedOutputFrameCount(void *pUserData, const ma_resampling_backend *pBackend, ma_uint64 inputFrameCount, ma_uint64 *pOutputFrameCount)
+    {
+        const R8brainBackend *backend = (const R8brainBackend *)pBackend;
+        if (!pOutputFrameCount)
+            return MA_INVALID_ARGS;
+        if (!backend || backend->ratio <= 0.0)
+        {
+            *pOutputFrameCount = inputFrameCount;
+        }
+        else
+        {
+            *pOutputFrameCount = (ma_uint64)std::floor((double)inputFrameCount * backend->ratio);
+        }
+        return MA_SUCCESS;
+    }
+
+    static ma_result r8b_onReset(void *pUserData, ma_resampling_backend *pBackend)
+    {
+        R8brainBackend *backend = (R8brainBackend *)pBackend;
+        if (backend)
+        {
+            for (auto *r : backend->resamplers)
+            {
+                if (r) r->clear();
+            }
+            backend->outputFifo.clear();
+            backend->fifoReadPos = 0;
+        }
+        return MA_SUCCESS;
+    }
+
+    static ma_resampling_backend_vtable g_r8brainResamplerVTable = {
+        r8b_onGetHeapSize,
+        r8b_onInit,
+        r8b_onUninit,
+        r8b_onProcess,
+        r8b_onSetRate,
+        r8b_onGetInputLatency,
+        r8b_onGetOutputLatency,
+        r8b_onGetRequiredInputFrameCount,
+        r8b_onGetExpectedOutputFrameCount,
+        r8b_onReset
+    };
+
+    static inline ma_resampling_backend_vtable *get_resampler_vtable_for_algorithm(int algo)
+    {
+        if (algo >= 7 && algo <= 10)
+            return &g_soxrResamplerVTable;
+        if (algo == 11 || algo == 12)
+            return &g_r8brainResamplerVTable;
+        return &g_customResamplerVTable;
     };
 
     struct LimiterState
@@ -3466,9 +3771,7 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
                 if (e->resampleAlgorithm > 0)
                 {
                     rcfg.algorithm = ma_resample_algorithm_custom;
-                    rcfg.pBackendVTable = (e->resampleAlgorithm >= 7 && e->resampleAlgorithm <= 10)
-                                          ? &g_soxrResamplerVTable
-                                          : &g_customResamplerVTable;
+                    rcfg.pBackendVTable = get_resampler_vtable_for_algorithm(e->resampleAlgorithm);
                     rcfg.pBackendUserData = &e->resampleAlgorithm;
                 }
                 if (ma_resampler_init(&rcfg, nullptr, &e->deviceResampler) == MA_SUCCESS)
@@ -3701,9 +4004,7 @@ static bool load_decoder_for_path(
     if (e->resampleAlgorithm > 0)
     {
         cfg.resampling.algorithm = ma_resample_algorithm_custom;
-        cfg.resampling.pBackendVTable = (e->resampleAlgorithm >= 7 && e->resampleAlgorithm <= 10)
-                                         ? &g_soxrResamplerVTable
-                                         : &g_customResamplerVTable;
+        cfg.resampling.pBackendVTable = get_resampler_vtable_for_algorithm(e->resampleAlgorithm);
         cfg.resampling.pBackendUserData = &e->resampleAlgorithm;
     }
 #if defined(SAUTIFLOW_ENABLE_FFMPEG) && SAUTIFLOW_ENABLE_FFMPEG
@@ -4331,9 +4632,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     if (e->resampleAlgorithm > 0)
                     {
                         config.resampling.algorithm = ma_resample_algorithm_custom;
-                        config.resampling.pBackendVTable = (e->resampleAlgorithm >= 7 && e->resampleAlgorithm <= 10)
-                                                            ? &g_soxrResamplerVTable
-                                                            : &g_customResamplerVTable;
+                        config.resampling.pBackendVTable = get_resampler_vtable_for_algorithm(e->resampleAlgorithm);
                         config.resampling.pBackendUserData = &e->resampleAlgorithm;
                     }
                     config.seekPointCount = 100;
@@ -9980,14 +10279,7 @@ extern "C"
         ma_resampler_config config = ma_resampler_config_init(ae_format_to_ma(internalFormat), channels, sample_rate_in, sample_rate_out, algo);
         if (algo == ma_resample_algorithm_custom)
         {
-            if (algorithm >= 7 && algorithm <= 10)
-            {
-                config.pBackendVTable = &g_soxrResamplerVTable;
-            }
-            else
-            {
-                config.pBackendVTable = &g_customResamplerVTable;
-            }
+            config.pBackendVTable = get_resampler_vtable_for_algorithm(algorithm);
             config.pBackendUserData = &obj->algorithmChoice;
         }
 
@@ -11375,7 +11667,7 @@ extern "C"
             info.mode = info.is_bypassed ? 0 : (engine->autoSampleRateMatchEnabled ? 1 : 3);
             info.resampler_latency_ms = engine->deviceResamplerInit ? (double)ma_resampler_get_input_latency(&engine->deviceResampler) / (double)engine->deviceSampleRate * 1000.0 : 0.0;
             info.filter_passband_ratio = 0.45 * (double)info.device_sample_rate;
-            info.is_linear_phase = (engine->resampleAlgorithm == AE_RESAMPLE_ALGORITHM_SOXR_VHQ_LINEAR_PHASE) ? 1 : 0;
+            info.is_linear_phase = (engine->resampleAlgorithm == AE_RESAMPLE_ALGORITHM_SOXR_VHQ_LINEAR_PHASE || engine->resampleAlgorithm == AE_RESAMPLE_ALGORITHM_R8BRAIN_24_LINEAR_PHASE) ? 1 : 0;
         }
         return info;
     }

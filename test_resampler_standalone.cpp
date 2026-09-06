@@ -10,6 +10,7 @@
 #include "miniaudio.h"
 #include <samplerate.h>
 #include <soxr.h>
+#include "CDSPResampler.h"
 
 // Re-create the LibSampleRateBackend and SoxrResamplerBackend VTable wrappers matching audio_engine.cpp
 
@@ -204,6 +205,225 @@ static ma_resampling_backend_vtable g_soxrResamplerVTable = {
     NULL, NULL, NULL, NULL, NULL
 };
 
+// r8brain Backend
+struct R8brainBackend
+{
+    double ratio = 1.0;
+    double sampleRateIn = 48000.0;
+    double sampleRateOut = 48000.0;
+    int channels = 2;
+    int algorithm = 11;
+    int maxInLen = 4096;
+    std::vector<r8b::CDSPResampler *> resamplers;
+    std::vector<std::vector<double>> inBufs;
+    std::vector<double *> outPtrs;
+    std::vector<float> outputFifo;
+    size_t fifoReadPos = 0;
+};
+
+static ma_result r8b_onGetHeapSize(void *pUserData, const ma_resampler_config *pConfig, size_t *pHeapSizeInBytes)
+{
+    if (!pHeapSizeInBytes) return MA_INVALID_ARGS;
+    *pHeapSizeInBytes = sizeof(R8brainBackend);
+    return MA_SUCCESS;
+}
+
+static ma_result r8b_onInit(void *pUserData, const ma_resampler_config *pConfig, void *pAllocation, ma_resampling_backend **ppBackend)
+{
+    if (!pConfig || !pAllocation || !ppBackend) return MA_INVALID_ARGS;
+
+    R8brainBackend *backend = new (pAllocation) R8brainBackend();
+    backend->channels = (pConfig->channels > 0) ? (int)pConfig->channels : 2;
+    backend->sampleRateIn = (pConfig->sampleRateIn > 0) ? (double)pConfig->sampleRateIn : ((pConfig->sampleRateOut > 0) ? (double)pConfig->sampleRateOut : 48000.0);
+    backend->sampleRateOut = (pConfig->sampleRateOut > 0) ? (double)pConfig->sampleRateOut : 48000.0;
+    backend->ratio = (backend->sampleRateIn > 0.0) ? (backend->sampleRateOut / backend->sampleRateIn) : 1.0;
+
+    int algo = pUserData ? *(int *)pUserData : 11;
+    backend->algorithm = algo;
+
+    backend->maxInLen = 4096;
+    const double reqTransBand = 2.0;
+    const double reqAtten = 180.15;
+    const r8b::EDSPFilterPhaseResponse phase = (algo == 12) ? r8b::fprMinPhase : r8b::fprLinearPhase;
+
+    backend->resamplers.resize(backend->channels, nullptr);
+    backend->inBufs.resize(backend->channels);
+    backend->outPtrs.resize(backend->channels, nullptr);
+
+    for (int c = 0; c < backend->channels; ++c)
+    {
+        backend->inBufs[c].resize(backend->maxInLen, 0.0);
+        backend->resamplers[c] = new r8b::CDSPResampler(
+            backend->sampleRateIn,
+            backend->sampleRateOut,
+            backend->maxInLen,
+            reqTransBand,
+            reqAtten,
+            phase
+        );
+    }
+
+    *ppBackend = (ma_resampling_backend *)backend;
+    return MA_SUCCESS;
+}
+
+static void r8b_onUninit(void *pUserData, ma_resampling_backend *pBackend, const ma_allocation_callbacks *pAllocationCallbacks)
+{
+    R8brainBackend *backend = (R8brainBackend *)pBackend;
+    if (backend)
+    {
+        for (auto *r : backend->resamplers)
+        {
+            delete r;
+        }
+        backend->resamplers.clear();
+        backend->~R8brainBackend();
+    }
+}
+
+static ma_result r8b_onProcess(void *pUserData, ma_resampling_backend *pBackend, const void *pFramesIn, ma_uint64 *pFrameCountIn, void *pFramesOut, ma_uint64 *pFrameCountOut)
+{
+    R8brainBackend *backend = (R8brainBackend *)pBackend;
+    if (!backend || !pFrameCountIn || !pFrameCountOut) return MA_ERROR;
+
+    const int ch = backend->channels;
+    if (ch <= 0) return MA_ERROR;
+
+    if (std::fabs(backend->ratio - 1.0) < 1.0e-5 && pFramesIn != nullptr && pFramesOut != nullptr && backend->outputFifo.empty())
+    {
+        ma_uint64 toCopy = std::min(*pFrameCountIn, *pFrameCountOut);
+        std::memcpy(pFramesOut, pFramesIn, (size_t)toCopy * (size_t)ch * sizeof(float));
+        *pFrameCountIn = toCopy;
+        *pFrameCountOut = toCopy;
+        return MA_SUCCESS;
+    }
+
+    float *outDst = (float *)pFramesOut;
+    const float *inSrc = (const float *)pFramesIn;
+    ma_uint64 outTarget = *pFrameCountOut;
+    ma_uint64 outProduced = 0;
+
+    if (!backend->outputFifo.empty())
+    {
+        size_t fifoFrames = (backend->outputFifo.size() - backend->fifoReadPos) / (size_t)ch;
+        size_t toDrain = std::min<size_t>(fifoFrames, (size_t)(outTarget - outProduced));
+        if (toDrain > 0)
+        {
+            if (outDst != nullptr)
+            {
+                std::memcpy(outDst + outProduced * (size_t)ch,
+                            backend->outputFifo.data() + backend->fifoReadPos,
+                            toDrain * (size_t)ch * sizeof(float));
+            }
+            backend->fifoReadPos += toDrain * (size_t)ch;
+            outProduced += toDrain;
+            if (backend->fifoReadPos >= backend->outputFifo.size())
+            {
+                backend->outputFifo.clear();
+                backend->fifoReadPos = 0;
+            }
+        }
+    }
+
+    if (outProduced >= outTarget || !pFramesIn || *pFrameCountIn == 0)
+    {
+        *pFrameCountIn = 0;
+        *pFrameCountOut = outProduced;
+        return MA_SUCCESS;
+    }
+
+    size_t inFramesToProcess = std::min<size_t>((size_t)*pFrameCountIn, (size_t)backend->maxInLen);
+
+    for (size_t i = 0; i < inFramesToProcess; ++i)
+    {
+        for (int c = 0; c < ch; ++c)
+        {
+            backend->inBufs[c][i] = (double)inSrc[i * (size_t)ch + (size_t)c];
+        }
+    }
+
+    int genFrames = 0;
+    for (int c = 0; c < ch; ++c)
+    {
+        genFrames = backend->resamplers[c]->process(backend->inBufs[c].data(), (int)inFramesToProcess, backend->outPtrs[c]);
+    }
+
+    if (genFrames > 0)
+    {
+        size_t availableOutSpace = (size_t)(outTarget - outProduced);
+        size_t directCopy = std::min<size_t>((size_t)genFrames, availableOutSpace);
+
+        if (outDst != nullptr && directCopy > 0)
+        {
+            for (size_t i = 0; i < directCopy; ++i)
+            {
+                for (int c = 0; c < ch; ++c)
+                {
+                    outDst[(outProduced + i) * (size_t)ch + (size_t)c] = (float)backend->outPtrs[c][i];
+                }
+            }
+            outProduced += directCopy;
+        }
+
+        if ((size_t)genFrames > directCopy)
+        {
+            size_t excess = (size_t)genFrames - directCopy;
+            size_t oldSize = backend->outputFifo.size();
+            backend->outputFifo.resize(oldSize + excess * (size_t)ch);
+            for (size_t i = 0; i < excess; ++i)
+            {
+                for (int c = 0; c < ch; ++c)
+                {
+                    backend->outputFifo[oldSize + i * (size_t)ch + (size_t)c] = (float)backend->outPtrs[c][directCopy + i];
+                }
+            }
+        }
+    }
+
+    *pFrameCountIn = (ma_uint64)inFramesToProcess;
+    *pFrameCountOut = outProduced;
+    return MA_SUCCESS;
+}
+
+static ma_result r8b_onSetRate(void *pUserData, ma_resampling_backend *pBackend, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut)
+{
+    R8brainBackend *backend = (R8brainBackend *)pBackend;
+    if (!backend || sampleRateIn == 0 || sampleRateOut == 0) return MA_ERROR;
+
+    backend->sampleRateIn = (double)sampleRateIn;
+    backend->sampleRateOut = (double)sampleRateOut;
+    backend->ratio = backend->sampleRateOut / backend->sampleRateIn;
+
+    const double reqTransBand = 2.0;
+    const double reqAtten = 180.15;
+    const r8b::EDSPFilterPhaseResponse phase = (backend->algorithm == 12) ? r8b::fprMinPhase : r8b::fprLinearPhase;
+
+    for (int c = 0; c < backend->channels; ++c)
+    {
+        delete backend->resamplers[c];
+        backend->resamplers[c] = new r8b::CDSPResampler(
+            backend->sampleRateIn,
+            backend->sampleRateOut,
+            backend->maxInLen,
+            reqTransBand,
+            reqAtten,
+            phase
+        );
+    }
+    backend->outputFifo.clear();
+    backend->fifoReadPos = 0;
+    return MA_SUCCESS;
+}
+
+static ma_resampling_backend_vtable g_r8brainResamplerVTable = {
+    r8b_onGetHeapSize,
+    r8b_onInit,
+    r8b_onUninit,
+    r8b_onProcess,
+    r8b_onSetRate,
+    NULL, NULL, NULL, NULL, NULL
+};
+
 // Frequency estimation by counting zero crossings
 double estimate_frequency(const std::vector<float>& buffer, int channels, int sampleRate)
 {
@@ -366,6 +586,18 @@ int main()
     run_test("libsoxr VHQ", 7, &g_soxrResamplerVTable, 48000, 44100);
     run_test("libsoxr HQ",  9, &g_soxrResamplerVTable, 48000, 96000);
     run_test("libsoxr LQ", 10, &g_soxrResamplerVTable, 48000, 96000);
+
+    std::printf("\n--- TESTING R8BRAIN BACKEND (g_r8brainResamplerVTable) ---\n");
+    run_test("r8brain LinearPhase", 11, &g_r8brainResamplerVTable, 48000, 96000);
+    run_test("r8brain LinearPhase", 11, &g_r8brainResamplerVTable, 96000, 48000);
+    run_test("r8brain LinearPhase", 11, &g_r8brainResamplerVTable, 44100, 48000);
+    run_test("r8brain LinearPhase", 11, &g_r8brainResamplerVTable, 48000, 44100);
+    run_test("r8brain LinearPhase", 11, &g_r8brainResamplerVTable, 192000, 48000);
+
+    run_test("r8brain MinPhase", 12, &g_r8brainResamplerVTable, 48000, 96000);
+    run_test("r8brain MinPhase", 12, &g_r8brainResamplerVTable, 96000, 48000);
+    run_test("r8brain MinPhase", 12, &g_r8brainResamplerVTable, 44100, 48000);
+    run_test("r8brain MinPhase", 12, &g_r8brainResamplerVTable, 48000, 44100);
 
     return 0;
 }

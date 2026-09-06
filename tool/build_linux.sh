@@ -24,7 +24,7 @@ else
 	FFMPEG_LDFLAGS="-Lthird_party/ffmpeg/lib -lavformat -lavcodec -lavutil -lswresample"
 fi
 
-INCLUDES="-I. -Idsp -Ithird_party -Ithird_party/faad2/include -Ithird_party/faad2/libfaad -Ithird_party/libsamplerate/include -Ithird_party/libsoxr/include -Ithird_party/libsoxr/src $FFMPEG_CFLAGS"
+INCLUDES="-I. -Idsp -Ithird_party -Ithird_party/faad2/include -Ithird_party/faad2/libfaad -Ithird_party/libsamplerate/include -Ithird_party/libsoxr/include -Ithird_party/libsoxr/src -Ithird_party/r8brain $FFMPEG_CFLAGS"
 
 DEFINES="-DHAVE_INTTYPES_H=1 -DHAVE_MEMCPY=1 -DHAVE_STRING_H=1 -DHAVE_STDBOOL_H=1 -DHAVE_STRINGS_H=1 -DHAVE_SYS_TYPES_H=1 -DPACKAGE=\"libsamplerate\" -DVERSION=\"0.2.2\" -DPACKAGE_VERSION=\"2.11.1\" -DENABLE_SINC_BEST_CONVERTER=1 -DENABLE_SINC_MEDIUM_CONVERTER=1 -DENABLE_SINC_FAST_CONVERTER=1 -DMA_NO_ASSERT -DMA_DR_WAV_NO_ASSERT -DMA_DR_FLAC_NO_ASSERT -DMA_DR_MP3_NO_ASSERT -DSOXR_LIB=1 -DSAUTIFLOW_ENABLE_FFMPEG=1"
 
