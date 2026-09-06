@@ -789,6 +789,26 @@ class IsolateAudioPlayer {
         'releaseMs': releaseMs,
       });
 
+  void setDeEsserPreset(DeEsserPreset preset) =>
+      _send({
+        'cmd': 'setDeEsserPreset',
+        'preset': preset.value,
+      });
+
+  Future<double> getDeEsserGainReductionDB() async {
+    final responsePort = ReceivePort();
+    _send({
+      'cmd': 'getDeEsserGainReductionDB',
+      'replyTo': responsePort.sendPort,
+    });
+    final response = await responsePort.first;
+    responsePort.close();
+    if (response is Map && response.containsKey('error')) {
+      return 0.0;
+    }
+    return (response as num?)?.toDouble() ?? 0.0;
+  }
+
   void setDownwardExpander({
     required bool enabled,
     DownwardExpanderPreset preset = DownwardExpanderPreset.vinylClean,
@@ -2229,6 +2249,20 @@ void _isolateEntry(_IsolateInitData initData) {
             attackMs: (message['attackMs'] as num?)?.toDouble() ?? 1.0,
             releaseMs: (message['releaseMs'] as num?)?.toDouble() ?? 35.0,
           );
+          break;
+        case 'setDeEsserPreset':
+          player.dsp.setDeEsserPreset(
+            DeEsserPreset.values.firstWhere(
+              (p) => p.value == message['preset'],
+              orElse: () => DeEsserPreset.gentleVocal,
+            ),
+          );
+          break;
+        case 'getDeEsserGainReductionDB':
+          final replyTo = message['replyTo'] as SendPort?;
+          if (replyTo != null) {
+            replyTo.send(player.dsp.deEsserGainReductionDb);
+          }
           break;
         case 'setDownwardExpander':
           player.dsp.setDownwardExpander(

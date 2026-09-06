@@ -13,6 +13,7 @@ $includes = @(
     "-Ithird_party/libsoxr/include",
     "-Ithird_party/libsoxr/src",
     "-Ithird_party/ffmpeg/include",
+    "-Ithird_party/r8brain",
     "-Idsp"
 )
 

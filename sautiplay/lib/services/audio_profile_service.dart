@@ -52,6 +52,8 @@ class AudioProfileService {
     player.setHarmonicBass(enabled: false);
     player.setDynamicSystem(enabled: false);
     player.setAnalogWarmth(enabled: false);
+    player.setDeEsser(enabled: false);
+    player.setDownwardExpander(enabled: false);
     player.setConvolverEnabled(false);
     player.setMasterLimiter(enabled: false);
     await AppStateService.instance.saveSautiDspState(
@@ -469,6 +471,8 @@ class AudioProfileService {
       'bassEnabled': false,
       'dynamicSystemEnabled': false,
       'analogWarmthEnabled': false,
+      'deEsserEnabled': false,
+      'expanderEnabled': false,
       'convolverEnabled': false,
       'limiterEnabled': false,
       'surroundEnabled': false,

@@ -15,6 +15,7 @@ import 'services/app_state_service.dart';
 import 'widgets/app_showcase.dart';
 import 'widgets/clarity_graph.dart';
 import 'widgets/compressor_graph.dart';
+import 'widgets/de_esser_graph.dart';
 import 'widgets/crossfeed_graph.dart';
 import 'widgets/dynamic_bass_graph.dart';
 import 'widgets/dynamic_system_graph.dart';
@@ -151,6 +152,35 @@ class EqScreen extends StatefulWidget {
       ducking: dialogEnhancerDucking,
       clarity: dialogEnhancerClarity,
       centerFocus: dialogEnhancerCenterFocus,
+    );
+
+    final deEsserEnabled =
+        masterEnabled && (state['deEsserEnabled'] ?? false);
+    final deEsserMode = DeEsserMode.values.firstWhere(
+      (e) => e.value == (state['deEsserMode'] ?? 0),
+      orElse: () => DeEsserMode.splitBand,
+    );
+    final deEsserFrequencyHz =
+        (state['deEsserFrequencyHz'] as num?)?.toDouble() ?? 5500.0;
+    final deEsserThresholdDb =
+        (state['deEsserThresholdDb'] as num?)?.toDouble() ?? -22.0;
+    final deEsserRatio = (state['deEsserRatio'] as num?)?.toDouble() ?? 4.0;
+    final deEsserMaxReductionDb =
+        (state['deEsserMaxReductionDb'] as num?)?.toDouble() ?? 12.0;
+    final deEsserAttackMs =
+        (state['deEsserAttackMs'] as num?)?.toDouble() ?? 1.0;
+    final deEsserReleaseMs =
+        (state['deEsserReleaseMs'] as num?)?.toDouble() ?? 35.0;
+
+    player.setDeEsserEx(
+      enabled: deEsserEnabled,
+      mode: deEsserMode,
+      frequencyHz: deEsserFrequencyHz,
+      thresholdDb: deEsserThresholdDb,
+      ratio: deEsserRatio,
+      maxReductionDb: deEsserMaxReductionDb,
+      attackMs: deEsserAttackMs,
+      releaseMs: deEsserReleaseMs,
     );
 
     final expanderEnabled =
@@ -884,6 +914,18 @@ class _EqScreenState extends State<EqScreen>
   AnalogWarmthProfile _analogWarmthProfile = AnalogWarmthProfile.triode12AX7;
   double _analogWarmthDrive = 0.5;
 
+  // 4a. De-Esser (Sibilance Reducer)
+  bool _deEsserEnabled = false;
+  DeEsserMode _deEsserMode = DeEsserMode.splitBand;
+  DeEsserPreset _deEsserPreset = DeEsserPreset.gentleVocal;
+  double _deEsserFrequencyHz = 5500.0;
+  double _deEsserThresholdDb = -22.0;
+  double _deEsserRatio = 4.0;
+  double _deEsserMaxReductionDb = 12.0;
+  double _deEsserAttackMs = 1.0;
+  double _deEsserReleaseMs = 35.0;
+  double _deEsserGainReductionDb = 0.0;
+
   // 4b. Downward Expander (Vinyl & Tape Noise Floor Reducer)
   bool _expanderEnabled = false;
   DownwardExpanderPreset _expanderPreset = DownwardExpanderPreset.vinylClean;
@@ -1005,6 +1047,21 @@ class _EqScreenState extends State<EqScreen>
         if (mounted) {
           setState(() {
             _compressorGainReductionDb = 0.0;
+          });
+        }
+      }
+
+      if (_deEsserEnabled && _isPlaying) {
+        final deGr = await widget.player.getDeEsserGainReductionDB();
+        if (mounted && (_deEsserGainReductionDb - deGr).abs() > 0.05) {
+          setState(() {
+            _deEsserGainReductionDb = deGr;
+          });
+        }
+      } else if (_deEsserGainReductionDb != 0.0) {
+        if (mounted) {
+          setState(() {
+            _deEsserGainReductionDb = 0.0;
           });
         }
       }
@@ -1178,6 +1235,28 @@ class _EqScreenState extends State<EqScreen>
         );
         _analogWarmthDrive =
             (dspMap['analogWarmthDrive'] as num?)?.toDouble() ?? 0.5;
+
+        _deEsserEnabled = dspMap['deEsserEnabled'] ?? false;
+        _deEsserMode = DeEsserMode.values.firstWhere(
+          (e) => e.value == (dspMap['deEsserMode'] ?? 0),
+          orElse: () => DeEsserMode.splitBand,
+        );
+        _deEsserPreset = DeEsserPreset.values.firstWhere(
+          (e) => e.value == (dspMap['deEsserPreset'] ?? 0),
+          orElse: () => DeEsserPreset.gentleVocal,
+        );
+        _deEsserFrequencyHz =
+            (dspMap['deEsserFrequencyHz'] as num?)?.toDouble() ?? 5500.0;
+        _deEsserThresholdDb =
+            (dspMap['deEsserThresholdDb'] as num?)?.toDouble() ?? -22.0;
+        _deEsserRatio =
+            (dspMap['deEsserRatio'] as num?)?.toDouble() ?? 4.0;
+        _deEsserMaxReductionDb =
+            (dspMap['deEsserMaxReductionDb'] as num?)?.toDouble() ?? 12.0;
+        _deEsserAttackMs =
+            (dspMap['deEsserAttackMs'] as num?)?.toDouble() ?? 1.0;
+        _deEsserReleaseMs =
+            (dspMap['deEsserReleaseMs'] as num?)?.toDouble() ?? 35.0;
 
         _expanderEnabled = dspMap['expanderEnabled'] ?? false;
         _expanderPreset = DownwardExpanderPreset.values.firstWhere(
@@ -1395,6 +1474,82 @@ class _EqScreenState extends State<EqScreen>
       profile: _analogWarmthProfile,
       drive: _analogWarmthDrive,
     );
+  }
+
+  void _updateDeEsser() {
+    widget.player.setDeEsserEx(
+      enabled: _deEsserEnabled,
+      mode: _deEsserMode,
+      frequencyHz: _deEsserFrequencyHz,
+      thresholdDb: _deEsserThresholdDb,
+      ratio: _deEsserRatio,
+      maxReductionDb: _deEsserMaxReductionDb,
+      attackMs: _deEsserAttackMs,
+      releaseMs: _deEsserReleaseMs,
+    );
+  }
+
+  void _applyDeEsserPreset(DeEsserPreset preset) {
+    setState(() {
+      _deEsserPreset = preset;
+      switch (preset) {
+        case DeEsserPreset.gentleVocal:
+          _deEsserMode = DeEsserMode.splitBand;
+          _deEsserFrequencyHz = 5500.0;
+          _deEsserThresholdDb = -24.0;
+          _deEsserRatio = 3.5;
+          _deEsserMaxReductionDb = 8.0;
+          _deEsserAttackMs = 1.5;
+          _deEsserReleaseMs = 40.0;
+          break;
+        case DeEsserPreset.aggressiveSibilance:
+          _deEsserMode = DeEsserMode.splitBand;
+          _deEsserFrequencyHz = 6000.0;
+          _deEsserThresholdDb = -30.0;
+          _deEsserRatio = 6.0;
+          _deEsserMaxReductionDb = 16.0;
+          _deEsserAttackMs = 0.8;
+          _deEsserReleaseMs = 30.0;
+          break;
+        case DeEsserPreset.vintageWideband:
+          _deEsserMode = DeEsserMode.wideBand;
+          _deEsserFrequencyHz = 5000.0;
+          _deEsserThresholdDb = -22.0;
+          _deEsserRatio = 4.0;
+          _deEsserMaxReductionDb = 10.0;
+          _deEsserAttackMs = 2.0;
+          _deEsserReleaseMs = 50.0;
+          break;
+        case DeEsserPreset.podcastSpeech:
+          _deEsserMode = DeEsserMode.splitBand;
+          _deEsserFrequencyHz = 4500.0;
+          _deEsserThresholdDb = -26.0;
+          _deEsserRatio = 5.0;
+          _deEsserMaxReductionDb = 14.0;
+          _deEsserAttackMs = 1.0;
+          _deEsserReleaseMs = 35.0;
+          break;
+        case DeEsserPreset.custom:
+          break;
+      }
+    });
+    if (_deEsserEnabled) _updateDeEsser();
+    _saveEqState();
+  }
+
+  String _getDeEsserPresetName(DeEsserPreset p) {
+    switch (p) {
+      case DeEsserPreset.gentleVocal:
+        return 'Gentle';
+      case DeEsserPreset.aggressiveSibilance:
+        return 'Aggressive';
+      case DeEsserPreset.vintageWideband:
+        return 'Wideband';
+      case DeEsserPreset.podcastSpeech:
+        return 'Podcast';
+      case DeEsserPreset.custom:
+        return 'Custom';
+    }
   }
 
   void _updateDownwardExpander() {
@@ -1684,6 +1839,15 @@ class _EqScreenState extends State<EqScreen>
       'analogWarmthEnabled': _analogWarmthEnabled,
       'analogWarmthProfile': _analogWarmthProfile.value,
       'analogWarmthDrive': _analogWarmthDrive,
+      'deEsserEnabled': _deEsserEnabled,
+      'deEsserMode': _deEsserMode.value,
+      'deEsserPreset': _deEsserPreset.value,
+      'deEsserFrequencyHz': _deEsserFrequencyHz,
+      'deEsserThresholdDb': _deEsserThresholdDb,
+      'deEsserRatio': _deEsserRatio,
+      'deEsserMaxReductionDb': _deEsserMaxReductionDb,
+      'deEsserAttackMs': _deEsserAttackMs,
+      'deEsserReleaseMs': _deEsserReleaseMs,
       'expanderEnabled': _expanderEnabled,
       'expanderPreset': _expanderPreset.value,
       'expanderThresholdDb': _expanderThresholdDb,
@@ -1942,6 +2106,18 @@ class _EqScreenState extends State<EqScreen>
       _analogWarmthProfile = AnalogWarmthProfile.triode12AX7;
       _analogWarmthDrive = 0.5;
       widget.player.setAnalogWarmth(enabled: false);
+
+      _deEsserEnabled = false;
+      _deEsserMode = DeEsserMode.splitBand;
+      _deEsserPreset = DeEsserPreset.gentleVocal;
+      _deEsserFrequencyHz = 5500.0;
+      _deEsserThresholdDb = -22.0;
+      _deEsserRatio = 4.0;
+      _deEsserMaxReductionDb = 12.0;
+      _deEsserAttackMs = 1.0;
+      _deEsserReleaseMs = 35.0;
+      _deEsserGainReductionDb = 0.0;
+      widget.player.setDeEsser(enabled: false);
 
       _expanderEnabled = false;
       _expanderPreset = DownwardExpanderPreset.vinylClean;
@@ -2596,7 +2772,7 @@ class _EqScreenState extends State<EqScreen>
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: M3ECardList(
-                  itemCount: 4,
+                  itemCount: 5,
                   onTap: (index) {
                     switch (index) {
                       case 0:
@@ -2617,13 +2793,21 @@ class _EqScreenState extends State<EqScreen>
                         break;
                       case 2:
                         _openDetailScreen(
+                          'De-Esser',
+                          Icons.record_voice_over_rounded,
+                          (_) => _buildDeEsserSection(),
+                          shape: Shapes.pill,
+                        );
+                        break;
+                      case 3:
+                        _openDetailScreen(
                           'Crystalizer',
                           Icons.auto_fix_high_rounded,
                           (_) => _buildCrystalizerSection(),
                           shape: Shapes.burst,
                         );
                         break;
-                      case 3:
+                      case 4:
                         _openDetailScreen(
                           'Downward Expander',
                           Icons.cleaning_services_rounded,
@@ -2679,6 +2863,28 @@ class _EqScreenState extends State<EqScreen>
                       );
                     }
                     if (index == 2) {
+                      return _buildEffectTileCard(
+                        icon: Icons.record_voice_over_rounded,
+                        shape: Shapes.pill,
+                        title: 'De-Esser',
+                        subtitle: _deEsserEnabled
+                            ? '${_getDeEsserPresetName(_deEsserPreset)} (${(_deEsserFrequencyHz / 1000.0).toStringAsFixed(1)} kHz / ${_deEsserThresholdDb.toInt()} dB)'
+                            : 'Disabled',
+                        isEnabled: _deEsserEnabled,
+                        onToggle: (v) {
+                          setState(() => _deEsserEnabled = v);
+                          _updateDeEsser();
+                          _saveEqState();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          'De-Esser',
+                          Icons.record_voice_over_rounded,
+                          (_) => _buildDeEsserSection(),
+                          shape: Shapes.pill,
+                        ),
+                      );
+                    }
+                    if (index == 3) {
                       return _buildEffectTileCard(
                         icon: Icons.auto_fix_high_rounded,
                         shape: Shapes.burst,
@@ -6075,6 +6281,253 @@ class _EqScreenState extends State<EqScreen>
                   _expanderPreset = DownwardExpanderPreset.custom;
                 });
                 if (_expanderEnabled) _updateDownwardExpander();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDeEsserSection() {
+    final deEsserColor = context.primaryColor;
+    return _CollapsibleSection(
+      icon: Center(
+        child: Icon(Icons.record_voice_over_rounded,
+            color: deEsserColor, size: 20),
+      ),
+      title: 'De-Esser',
+      subtitle: 'Attenuates harsh vocal sibilance',
+      isEnabled: _deEsserEnabled,
+      onToggle: (v) {
+        setState(() => _deEsserEnabled = v);
+        _updateDeEsser();
+        _saveEqState();
+      },
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Profile',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.85),
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            DropdownButtonHideUnderline(
+              child: DropdownButton<DeEsserPreset>(
+                value: _deEsserPreset,
+                dropdownColor: surfaceDarkerColor,
+                icon: Icon(Icons.arrow_drop_down_rounded, color: deEsserColor),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: DeEsserPreset.gentleVocal,
+                    child: Text('Gentle Vocal'),
+                  ),
+                  DropdownMenuItem(
+                    value: DeEsserPreset.aggressiveSibilance,
+                    child: Text('Aggressive'),
+                  ),
+                  DropdownMenuItem(
+                    value: DeEsserPreset.vintageWideband,
+                    child: Text('Vintage Wideband'),
+                  ),
+                  DropdownMenuItem(
+                    value: DeEsserPreset.podcastSpeech,
+                    child: Text('Podcast / Speech'),
+                  ),
+                  DropdownMenuItem(
+                    value: DeEsserPreset.custom,
+                    child: Text('Custom'),
+                  ),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    _applyDeEsserPreset(val);
+                  }
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Mode',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.85),
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            SegmentedButton<DeEsserMode>(
+              segments: const [
+                ButtonSegment(
+                  value: DeEsserMode.splitBand,
+                  label: Text('Split-Band', style: TextStyle(fontSize: 12)),
+                  icon: Icon(Icons.call_split_rounded, size: 16),
+                ),
+                ButtonSegment(
+                  value: DeEsserMode.wideBand,
+                  label: Text('Wideband', style: TextStyle(fontSize: 12)),
+                  icon: Icon(Icons.compress_rounded, size: 16),
+                ),
+              ],
+              selected: {_deEsserMode},
+              onSelectionChanged: (modes) {
+                if (modes.isNotEmpty) {
+                  setState(() {
+                    _deEsserMode = modes.first;
+                    _deEsserPreset = DeEsserPreset.custom;
+                  });
+                  if (_deEsserEnabled) _updateDeEsser();
+                  _saveEqState();
+                }
+              },
+              style: ButtonStyle(
+                visualDensity: VisualDensity.compact,
+                padding: WidgetStateProperty.all(
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        RepaintBoundary(
+          child: DeEsserGraph(
+            mode: _deEsserMode,
+            frequencyHz: _deEsserFrequencyHz,
+            thresholdDb: _deEsserThresholdDb,
+            ratio: _deEsserRatio,
+            maxReductionDb: _deEsserMaxReductionDb,
+            gainReductionDb: _deEsserGainReductionDb,
+            isEnabled: _deEsserEnabled,
+            height: 130.0,
+            primaryColor: deEsserColor,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'FREQUENCY',
+              value: _deEsserFrequencyHz,
+              min: 2000.0,
+              max: 12000.0,
+              flatValue: 5500.0,
+              activeColor: _deEsserEnabled ? deEsserColor : Colors.white,
+              valueFormatter: (v) => v >= 1000.0
+                  ? '${(v / 1000.0).toStringAsFixed(1)} kHz'
+                  : '${v.toInt()} Hz',
+              onChanged: (v) {
+                setState(() {
+                  _deEsserFrequencyHz = v;
+                  _deEsserPreset = DeEsserPreset.custom;
+                });
+                if (_deEsserEnabled) _updateDeEsser();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'THRESHOLD',
+              value: _deEsserThresholdDb,
+              min: -60.0,
+              max: 0.0,
+              flatValue: -22.0,
+              activeColor: _deEsserEnabled ? deEsserColor : Colors.white,
+              valueFormatter: (v) => '${v.toInt()} dB',
+              onChanged: (v) {
+                setState(() {
+                  _deEsserThresholdDb = v;
+                  _deEsserPreset = DeEsserPreset.custom;
+                });
+                if (_deEsserEnabled) _updateDeEsser();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'RATIO',
+              value: _deEsserRatio,
+              min: 1.0,
+              max: 10.0,
+              flatValue: 4.0,
+              activeColor: _deEsserEnabled ? deEsserColor : Colors.white,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)}:1',
+              onChanged: (v) {
+                setState(() {
+                  _deEsserRatio = v;
+                  _deEsserPreset = DeEsserPreset.custom;
+                });
+                if (_deEsserEnabled) _updateDeEsser();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'MAX REDUCTION',
+              value: _deEsserMaxReductionDb,
+              min: 2.0,
+              max: 24.0,
+              flatValue: 12.0,
+              activeColor: _deEsserEnabled ? deEsserColor : Colors.white,
+              valueFormatter: (v) => '-${v.toInt()} dB',
+              onChanged: (v) {
+                setState(() {
+                  _deEsserMaxReductionDb = v;
+                  _deEsserPreset = DeEsserPreset.custom;
+                });
+                if (_deEsserEnabled) _updateDeEsser();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'ATTACK',
+              value: _deEsserAttackMs,
+              min: 0.1,
+              max: 20.0,
+              flatValue: 1.0,
+              activeColor: _deEsserEnabled ? deEsserColor : Colors.white,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)} ms',
+              onChanged: (v) {
+                setState(() {
+                  _deEsserAttackMs = v;
+                  _deEsserPreset = DeEsserPreset.custom;
+                });
+                if (_deEsserEnabled) _updateDeEsser();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'RELEASE',
+              value: _deEsserReleaseMs,
+              min: 5.0,
+              max: 200.0,
+              flatValue: 35.0,
+              activeColor: _deEsserEnabled ? deEsserColor : Colors.white,
+              valueFormatter: (v) => '${v.toInt()} ms',
+              onChanged: (v) {
+                setState(() {
+                  _deEsserReleaseMs = v;
+                  _deEsserPreset = DeEsserPreset.custom;
+                });
+                if (_deEsserEnabled) _updateDeEsser();
                 _saveEqState();
               },
             ),

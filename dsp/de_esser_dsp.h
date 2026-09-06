@@ -12,6 +12,14 @@ enum class DeEsserMode {
     WideBand = 1   // Sibilance detection ducks wideband signal (classic analog opto-style)
 };
 
+enum class DeEsserPreset {
+    GentleVocal = 0,        // SplitBand, 5500 Hz, -24 dB, 3.5:1, 8 dB max reduction, 1.5ms attack, 40ms release
+    AggressiveSibilance = 1, // SplitBand, 6000 Hz, -30 dB, 6.0:1, 16 dB max reduction, 0.8ms attack, 30ms release
+    VintageWideband = 2,    // WideBand, 5000 Hz, -22 dB, 4.0:1, 10 dB max reduction, 2.0ms attack, 50ms release
+    PodcastSpeech = 3,      // SplitBand, 4500 Hz, -26 dB, 5.0:1, 14 dB max reduction, 1.0ms attack, 35ms release
+    Custom = 4
+};
+
 // =============================================================================
 // DeEsserDSP: High-Fidelity Clean-Room Split-Band & Wideband De-Esser
 //
@@ -63,6 +71,58 @@ public:
 
     DeEsserMode getMode() const { return mode_; }
 
+    void setPreset(DeEsserPreset preset) {
+        preset_ = preset;
+        if (preset == DeEsserPreset::Custom) return;
+        use_macro_intensity_ = false;
+        switch (preset) {
+            case DeEsserPreset::GentleVocal:
+                mode_ = DeEsserMode::SplitBand;
+                frequency_hz_ = 5500.0f;
+                target_threshold_db_ = -24.0f;
+                ratio_ = 3.5f;
+                max_reduction_db_ = 8.0f;
+                attack_ms_ = 1.5f;
+                release_ms_ = 40.0f;
+                break;
+            case DeEsserPreset::AggressiveSibilance:
+                mode_ = DeEsserMode::SplitBand;
+                frequency_hz_ = 6000.0f;
+                target_threshold_db_ = -30.0f;
+                ratio_ = 6.0f;
+                max_reduction_db_ = 16.0f;
+                attack_ms_ = 0.8f;
+                release_ms_ = 30.0f;
+                break;
+            case DeEsserPreset::VintageWideband:
+                mode_ = DeEsserMode::WideBand;
+                frequency_hz_ = 5000.0f;
+                target_threshold_db_ = -22.0f;
+                ratio_ = 4.0f;
+                max_reduction_db_ = 10.0f;
+                attack_ms_ = 2.0f;
+                release_ms_ = 50.0f;
+                break;
+            case DeEsserPreset::PodcastSpeech:
+                mode_ = DeEsserMode::SplitBand;
+                frequency_hz_ = 4500.0f;
+                target_threshold_db_ = -26.0f;
+                ratio_ = 5.0f;
+                max_reduction_db_ = 14.0f;
+                attack_ms_ = 1.0f;
+                release_ms_ = 35.0f;
+                break;
+            case DeEsserPreset::Custom:
+                break;
+        }
+        current_threshold_db_ = target_threshold_db_;
+        updateSidechainFilter();
+        updateTimeConstants();
+        updateShelfCoeffs(0.0f);
+    }
+
+    DeEsserPreset getPreset() const { return preset_; }
+
     // Macro intensity in range [0.0, 1.0]
     void setIntensity(float intensity) {
         target_intensity_ = std::clamp(intensity, 0.0f, 1.0f);
@@ -74,6 +134,7 @@ public:
 
     // Detailed Parameters:
     void setFrequencyHz(float freqHz) {
+        preset_ = DeEsserPreset::Custom;
         frequency_hz_ = std::clamp(freqHz, 2000.0f, 12000.0f);
         updateSidechainFilter();
         updateShelfCoeffs(current_gr_db_);
@@ -82,6 +143,7 @@ public:
     float getFrequencyHz() const { return frequency_hz_; }
 
     void setThresholdDb(float thresholdDb) {
+        preset_ = DeEsserPreset::Custom;
         use_macro_intensity_ = false;
         target_threshold_db_ = std::clamp(thresholdDb, -60.0f, 0.0f);
     }
@@ -89,6 +151,7 @@ public:
     float getThresholdDb() const { return target_threshold_db_; }
 
     void setRatio(float ratio) {
+        preset_ = DeEsserPreset::Custom;
         use_macro_intensity_ = false;
         ratio_ = std::clamp(ratio, 1.0f, 20.0f);
     }
@@ -96,6 +159,7 @@ public:
     float getRatio() const { return ratio_; }
 
     void setMaxReductionDb(float maxReductionDb) {
+        preset_ = DeEsserPreset::Custom;
         use_macro_intensity_ = false;
         max_reduction_db_ = std::clamp(maxReductionDb, 0.0f, 30.0f);
     }
@@ -103,6 +167,7 @@ public:
     float getMaxReductionDb() const { return max_reduction_db_; }
 
     void setAttackMs(float attackMs) {
+        preset_ = DeEsserPreset::Custom;
         attack_ms_ = std::clamp(attackMs, 0.1f, 50.0f);
         updateTimeConstants();
     }
@@ -110,6 +175,7 @@ public:
     float getAttackMs() const { return attack_ms_; }
 
     void setReleaseMs(float releaseMs) {
+        preset_ = DeEsserPreset::Custom;
         release_ms_ = std::clamp(releaseMs, 5.0f, 500.0f);
         updateTimeConstants();
     }
@@ -242,6 +308,7 @@ public:
 private:
     bool enabled_ = false;
     DeEsserMode mode_ = DeEsserMode::SplitBand;
+    DeEsserPreset preset_ = DeEsserPreset::GentleVocal;
     float sample_rate_ = 48000.0f;
     float sample_period_ = 1.0f / 48000.0f;
 

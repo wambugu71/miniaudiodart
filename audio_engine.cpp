@@ -10504,6 +10504,14 @@ extern "C"
         engine->deEsserDsp.setEnabled(enabled != 0);
     }
 
+    AE_API void ae_dsp_set_de_esser_preset(AudioEngineHandle *engine, int preset)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        if (preset < 0 || preset > 4) preset = 0;
+        engine->deEsserDsp.setPreset(static_cast<sauti::dsp::DeEsserPreset>(preset));
+    }
+
     AE_API void ae_dsp_set_de_esser_params(AudioEngineHandle *engine, int mode, float intensity)
     {
         if (!engine) return;

@@ -653,6 +653,23 @@ static void test_de_esser_dsp()
         }
         CHECK(!hasNaN, "DeEsserDSP contains no NaN/Inf with extreme input at 96kHz");
     }
+
+    // 5. Preset switching verification
+    {
+        sauti::dsp::DeEsserDSP deEsser;
+        deEsser.setPreset(sauti::dsp::DeEsserPreset::AggressiveSibilance);
+        CHECK(deEsser.getPreset() == sauti::dsp::DeEsserPreset::AggressiveSibilance, "DeEsser preset set to AggressiveSibilance");
+        CHECK(deEsser.getFrequencyHz() == 6000.0f, "AggressiveSibilance frequency is 6000Hz");
+        CHECK(deEsser.getRatio() == 6.0f, "AggressiveSibilance ratio is 6.0");
+
+        deEsser.setPreset(sauti::dsp::DeEsserPreset::VintageWideband);
+        CHECK(deEsser.getPreset() == sauti::dsp::DeEsserPreset::VintageWideband, "DeEsser preset set to VintageWideband");
+        CHECK(deEsser.getMode() == sauti::dsp::DeEsserMode::WideBand, "VintageWideband sets WideBand mode");
+
+        // Tweaking detailed parameter marks preset as Custom
+        deEsser.setThresholdDb(-18.0f);
+        CHECK(deEsser.getPreset() == sauti::dsp::DeEsserPreset::Custom, "Manual parameter tweak updates preset to Custom");
+    }
 }
 
 // -----------------------------------------------------------------------------

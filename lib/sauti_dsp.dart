@@ -117,6 +117,18 @@ enum DeEsserMode {
   const DeEsserMode(this.value);
 }
 
+/// De-Esser presets.
+enum DeEsserPreset {
+  gentleVocal(0),
+  aggressiveSibilance(1),
+  vintageWideband(2),
+  podcastSpeech(3),
+  custom(4);
+
+  final int value;
+  const DeEsserPreset(this.value);
+}
+
 /// Downward Expander & Noise Floor Reducer presets.
 enum DownwardExpanderPreset {
   vinylClean(0),
@@ -213,6 +225,10 @@ typedef _DspGetDialogEnhancerGainReductionDbNative = ffi.Float Function(
     ffi.Pointer<ffi.Void>);
 typedef _DspGetDialogEnhancerGainReductionDbDart = double Function(
     ffi.Pointer<ffi.Void>);
+
+typedef _DspSetDeEsserPresetNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _DspSetDeEsserPresetDart = void Function(ffi.Pointer<ffi.Void>, int);
 
 typedef _DspSetDeEsserParamsNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float);
@@ -391,6 +407,7 @@ class SautiDsp {
       _getDialogEnhancerGainReductionDb;
 
   late final _DspSetEnabledDart _setDeEsserEnabled;
+  late final _DspSetDeEsserPresetDart _setDeEsserPreset;
   late final _DspSetDeEsserParamsDart _setDeEsserParams;
   late final _DspSetDeEsserParamsExDart _setDeEsserParamsEx;
   late final _DspGetDeEsserGainReductionDbDart _getDeEsserGainReductionDb;
@@ -485,6 +502,8 @@ class SautiDsp {
     _setDeEsserEnabled =
         _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
             'ae_dsp_set_de_esser_enabled');
+    _setDeEsserPreset = _lib.lookupFunction<_DspSetDeEsserPresetNative,
+        _DspSetDeEsserPresetDart>('ae_dsp_set_de_esser_preset');
     _setDeEsserParams = _lib.lookupFunction<_DspSetDeEsserParamsNative,
         _DspSetDeEsserParamsDart>('ae_dsp_set_de_esser_params');
     _setDeEsserParamsEx = _lib.lookupFunction<_DspSetDeEsserParamsExNative,
@@ -672,6 +691,12 @@ class SautiDsp {
     if (_enginePtr == ffi.nullptr) return;
     _setDeEsserEnabled(_enginePtr, enabled ? 1 : 0);
     _setDeEsserParams(_enginePtr, mode.value, intensity);
+  }
+
+  /// Sets De-Esser preset.
+  void setDeEsserPreset(DeEsserPreset preset) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setDeEsserPreset(_enginePtr, preset.value);
   }
 
   /// Full manual parameter tuning for De-Esser.
