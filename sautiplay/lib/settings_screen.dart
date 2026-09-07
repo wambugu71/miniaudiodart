@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:sautiflow/sautiflow.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
@@ -187,6 +188,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // App version state
   String _appVersion = 'v0.6.20';
+  bool _autoCheckUpdates = true;
 
   // Changelog loaded from assets/CHANGELOG.md
   List<Map<String, dynamic>> _changelog = [];
@@ -327,9 +329,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       versionStr = 'v${info.version}';
     } catch (_) {}
 
+    final prefs = await SharedPreferences.getInstance();
+    final autoCheck = prefs.getBool('auto_check_updates') ?? true;
+
     if (!mounted) return;
     setState(() {
       _appVersion = versionStr;
+      _autoCheckUpdates = autoCheck;
       _streamingQualityPreset = streamingPreset;
       _preferNativeAac = preferAac;
       _enableHostedFallback = fallback;
@@ -3686,6 +3692,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       },
                     );
                   },
+                ),
+                const M3EDivider(),
+                M3EListItem(
+                  headline: 'Check Updates on Startup',
+                  supportingText:
+                      'Automatically check for updates when Sautiplay opens',
+                  leading: _buildLeadingIcon(Icons.update_rounded),
+                  trailing: M3ESwitch(
+                    value: _autoCheckUpdates,
+                    onChanged: (val) async {
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setBool('auto_check_updates', val);
+                      setSubState(() => _autoCheckUpdates = val);
+                      setState(() => _autoCheckUpdates = val);
+                    },
+                  ),
                 ),
                 const M3EDivider(),
                 M3EListItem(

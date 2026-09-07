@@ -1,14 +1,17 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import '../services/app_theme_service.dart';
 
-// Bounded in-memory cache to prevent memory ballooning
-const int _maxAlbumArtCacheSize = 120;
-const int _maxAlbumArtAttemptedSize = 500;
+// Bounded in-memory cache to prevent memory ballooning on low-end devices
+const int _maxAlbumArtCacheSize = 40;
+const int _maxAlbumArtAttemptedSize = 300;
+const int _maxDirectoryArtCacheSize = 20;
 
 final Map<String, Uint8List?> _albumArtCache = {};
 final Map<String, bool> _albumArtAttempted = {};
@@ -41,7 +44,35 @@ void _cacheAlbumArt(String path, Uint8List? bytes) {
   _albumArtAttempted[path] = true;
 }
 
-Future<Uint8List?> _extractArtTask(String path) async {
+void _cacheDirectoryArt(String dirPath, Uint8List? bytes) {
+  if (_directoryArtCache.length >= _maxDirectoryArtCacheSize) {
+    _directoryArtCache.remove(_directoryArtCache.keys.first);
+  }
+  _directoryArtCache[dirPath] = bytes;
+}
+
+/// Downscales image to thumbnail size (~120x120 px) using Flutter's native decoder.
+/// Prevents storing 3-10MB raw bitmaps in RAM.
+Future<Uint8List?> _downscaleArtwork(Uint8List? rawBytes, {int targetDimension = 120}) async {
+  if (rawBytes == null || rawBytes.isEmpty) return null;
+  try {
+    final codec = await ui.instantiateImageCodec(
+      rawBytes,
+      targetWidth: targetDimension,
+      targetHeight: targetDimension,
+    );
+    final frame = await codec.getNextFrame();
+    final byteData = await frame.image.toByteData(format: ui.ImageByteFormat.png);
+    frame.image.dispose();
+    codec.dispose();
+    return byteData?.buffer.asUint8List() ?? rawBytes;
+  } catch (_) {
+    return rawBytes;
+  }
+}
+
+/// Worker function executed in a background Isolate to prevent UI thread frame drops.
+Uint8List? _readRawArtWorker(String path) {
   try {
     final file = File(path);
     if (!file.existsSync()) return null;
@@ -54,13 +85,7 @@ Future<Uint8List?> _extractArtTask(String path) async {
       }
     } catch (_) {}
 
-    // 2. Check parent directory cache
-    final dirPath = file.parent.path;
-    if (_directoryArtAttempted.containsKey(dirPath)) {
-      return _directoryArtCache[dirPath];
-    }
-
-    _directoryArtAttempted[dirPath] = true;
+    // 2. Check parent directory for cover art
     final parentDir = file.parent;
     if (parentDir.existsSync()) {
       try {
@@ -72,15 +97,37 @@ Future<Uint8List?> _extractArtTask(String path) async {
                 lowerPath.endsWith('.jpeg') ||
                 lowerPath.endsWith('.png') ||
                 lowerPath.endsWith('.webp')) {
-              final bytes = f.readAsBytesSync();
-              _directoryArtCache[dirPath] = bytes;
-              return bytes;
+              return f.readAsBytesSync();
             }
           }
         }
       } catch (_) {}
     }
-    _directoryArtCache[dirPath] = null;
+  } catch (_) {}
+  return null;
+}
+
+Future<Uint8List?> _extractArtTask(String path) async {
+  try {
+    final dirPath = File(path).parent.path;
+    if (_directoryArtAttempted.containsKey(dirPath)) {
+      final cachedDirArt = _directoryArtCache[dirPath];
+      if (cachedDirArt != null) return cachedDirArt;
+    }
+
+    // Run file I/O and ID3 extraction on background worker isolate
+    final rawBytes = await Isolate.run(() => _readRawArtWorker(path));
+    if (rawBytes == null) {
+      _directoryArtAttempted[dirPath] = true;
+      _cacheDirectoryArt(dirPath, null);
+      return null;
+    }
+
+    // Downscale to thumbnail size on native image decoding pipeline before caching
+    final downscaled = await _downscaleArtwork(rawBytes, targetDimension: 120);
+    _directoryArtAttempted[dirPath] = true;
+    _cacheDirectoryArt(dirPath, downscaled);
+    return downscaled;
   } catch (e) {
     debugPrint('[LocalAlbumArt] Failed to read art for $path: $e');
   }

@@ -44,6 +44,7 @@ import 'package:sautiplay/services/dlna_renderer_service.dart';
 import 'package:sautiplay/services/local_media_server.dart';
 import 'services/ftp_service.dart';
 import 'services/audio_hardware_inspector.dart';
+import 'services/app_update_service.dart';
 import 'streaming_service.dart';
 
 void main() {
@@ -310,6 +311,15 @@ class _PlayerShellState extends State<PlayerShell> {
     }
   }
 
+  Future<void> _checkAppUpdateOnLaunch() async {
+    final prefs = await SharedPreferences.getInstance();
+    final showcaseDone = prefs.getBool('showcase_completed') ?? false;
+    // Allow cold-start UI animations and audio hardware detection to settle smoothly
+    await Future.delayed(Duration(milliseconds: showcaseDone ? 2500 : 8000));
+    if (!mounted) return;
+    await AppUpdateService.instance.checkOnLaunch(context);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -390,6 +400,7 @@ class _PlayerShellState extends State<PlayerShell> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkAndShowOnboarding();
+      _checkAppUpdateOnLaunch();
     });
 
     // DLNA receiver (act as a cast target for other devices)

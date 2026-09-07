@@ -2,13 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../widgets/app_update_dialog.dart';
 import 'platform_asset_matcher.dart';
 
 enum UpdateStage {
@@ -298,22 +300,87 @@ class AppUpdateService extends ChangeNotifier {
       notifyListeners();
       return true;
     } on SocketException {
-      _stage = UpdateStage.error;
-      _errorMessage =
-          'No internet connection. Please check your network and try again.';
+      if (isManual) {
+        _stage = UpdateStage.error;
+        _errorMessage =
+            'No internet connection. Please check your network and try again.';
+      } else {
+        _stage = UpdateStage.idle;
+        _errorMessage = null;
+      }
       notifyListeners();
       return false;
     } on TimeoutException {
-      _stage = UpdateStage.error;
-      _errorMessage =
-          'Connection timed out while checking for updates. Please try again.';
+      if (isManual) {
+        _stage = UpdateStage.error;
+        _errorMessage =
+            'Connection timed out while checking for updates. Please try again.';
+      } else {
+        _stage = UpdateStage.idle;
+        _errorMessage = null;
+      }
       notifyListeners();
       return false;
     } catch (e) {
-      _stage = UpdateStage.error;
-      _errorMessage = _cleanErrorMessage(e);
+      if (isManual) {
+        _stage = UpdateStage.error;
+        _errorMessage = _cleanErrorMessage(e);
+      } else {
+        _stage = UpdateStage.idle;
+        _errorMessage = null;
+      }
       notifyListeners();
       return false;
+    }
+  }
+
+  bool _checkedOnLaunch = false;
+
+  /// Fast non-blocking check to verify if internet connectivity is reachable.
+  Future<bool> isInternetAvailable() async {
+    try {
+      final result = await InternetAddress.lookup('api.github.com')
+          .timeout(const Duration(seconds: 3));
+      return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+    } catch (_) {
+      try {
+        final fallback = await InternetAddress.lookup('google.com')
+            .timeout(const Duration(seconds: 3));
+        return fallback.isNotEmpty && fallback[0].rawAddress.isNotEmpty;
+      } catch (_) {
+        return false;
+      }
+    }
+  }
+
+  /// Automatically checks for updates on app startup.
+  /// First verifies if internet connectivity is reachable. If connected and
+  /// a newer release is detected, presents the [AppUpdateDialog].
+  Future<void> checkOnLaunch(BuildContext context) async {
+    if (_checkedOnLaunch) return;
+    _checkedOnLaunch = true;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final autoCheck = prefs.getBool('auto_check_updates') ?? true;
+      if (!autoCheck) return;
+
+      final online = await isInternetAvailable();
+      if (!online) {
+        debugPrint('[AppUpdateService] Offline: skipping launch update check.');
+        return;
+      }
+
+      if (!context.mounted) return;
+
+      final hasUpdate = await checkForUpdates(isManual: false);
+      if (hasUpdate && context.mounted) {
+        debugPrint(
+            '[AppUpdateService] Newer update detected on launch, presenting update dialog.');
+        await AppUpdateDialog.show(context);
+      }
+    } catch (e) {
+      debugPrint('[AppUpdateService] Launch update check completed silently: $e');
     }
   }
 

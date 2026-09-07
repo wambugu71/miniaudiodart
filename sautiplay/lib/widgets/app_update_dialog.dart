@@ -16,13 +16,21 @@ import '../services/platform_asset_matcher.dart';
 class AppUpdateDialog extends StatelessWidget {
   const AppUpdateDialog({super.key});
 
+  static bool _isShowing = false;
+
   /// Presents the M3E update dialog.
-  static Future<void> show(BuildContext context) {
-    return M3EDialog.show<void>(
-      context,
-      barrierDismissible: true,
-      dialog: const AppUpdateDialog(),
-    );
+  static Future<void> show(BuildContext context) async {
+    if (_isShowing) return;
+    _isShowing = true;
+    try {
+      await M3EDialog.show<void>(
+        context,
+        barrierDismissible: true,
+        dialog: const AppUpdateDialog(),
+      );
+    } finally {
+      _isShowing = false;
+    }
   }
 
   @override

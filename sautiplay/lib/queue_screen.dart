@@ -49,6 +49,8 @@ class _QueueScreenState extends State<QueueScreen>
   int? _lastPlayingIndex;
   bool _hasInitialScrolled = false;
   bool _showUpcomingOnly = false;
+  bool _showScrollHelper = false;
+  int _currentScrollItemIndex = 0;
 
   int _lastTapTimeMs = 0;
 
@@ -65,6 +67,7 @@ class _QueueScreenState extends State<QueueScreen>
   void initState() {
     super.initState();
     _scrollController = ScrollController();
+    _scrollController.addListener(_onScroll);
     _lastPlayingIndex = _getPlayingIndex(widget.statusNotifier?.value);
     widget.statusNotifier?.addListener(_onStatusChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -73,6 +76,25 @@ class _QueueScreenState extends State<QueueScreen>
         _hasInitialScrolled = true;
       }
     });
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final playingIndex = _getPlayingIndex(widget.statusNotifier?.value);
+    const itemHeight = 67.0;
+    final currentOffset = _scrollController.offset;
+    final visibleIndex = (currentOffset / itemHeight).floor();
+
+    if (visibleIndex != _currentScrollItemIndex) {
+      _currentScrollItemIndex = visibleIndex;
+    }
+
+    // Show jump-to-playing helper if user has scrolled away from the currently playing item
+    final isScrolledAway =
+        playingIndex >= 0 && (visibleIndex - playingIndex).abs() > 4;
+    if (_showScrollHelper != isScrolledAway) {
+      setState(() => _showScrollHelper = isScrolledAway);
+    }
   }
 
   @override
@@ -96,6 +118,7 @@ class _QueueScreenState extends State<QueueScreen>
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
     widget.statusNotifier?.removeListener(_onStatusChanged);
     _scrollController.dispose();
     super.dispose();
@@ -386,17 +409,25 @@ class _QueueScreenState extends State<QueueScreen>
                       ),
                     ),
                   )
-                : ListView.builder(
-                    controller: _scrollController,
-                    itemExtent: 67.0,
-                    cacheExtent: 500.0,
-                    addAutomaticKeepAlives: false,
-                    addRepaintBoundaries: true,
-                    physics: const BouncingScrollPhysics(
-                        parent: AlwaysScrollableScrollPhysics()),
-                    padding: const EdgeInsets.symmetric(horizontal: 12.0)
-                        .copyWith(bottom: 140),
-                    itemCount: itemCount,
+                : Stack(
+                    children: [
+                      Scrollbar(
+                        controller: _scrollController,
+                        thumbVisibility: true,
+                        interactive: true,
+                        thickness: 6.0,
+                        radius: const Radius.circular(8),
+                        child: ListView.builder(
+                          controller: _scrollController,
+                          itemExtent: 67.0,
+                          cacheExtent: 120.0,
+                          addAutomaticKeepAlives: false,
+                          addRepaintBoundaries: true,
+                          physics: const BouncingScrollPhysics(
+                              parent: AlwaysScrollableScrollPhysics()),
+                          padding: const EdgeInsets.symmetric(horizontal: 12.0)
+                              .copyWith(bottom: 140),
+                          itemCount: itemCount,
                     itemBuilder: (context, index) {
                       final actualIndex = _showUpcomingOnly && playingIndex >= 0
                           ? index + playingIndex
@@ -639,6 +670,129 @@ class _QueueScreenState extends State<QueueScreen>
                       );
                     },
                   ),
+                ),
+                // Floating Scroll Helper Dock
+                if (playingIndex >= 0)
+                  Positioned(
+                    bottom: 70,
+                    right: 16,
+                    child: AnimatedSlide(
+                      duration: const Duration(milliseconds: 260),
+                      curve: Curves.easeOutCubic,
+                      offset: _showScrollHelper
+                          ? Offset.zero
+                          : const Offset(0, 1.8),
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeInOut,
+                        opacity: _showScrollHelper ? 1.0 : 0.0,
+                        child: IgnorePointer(
+                          ignoring: !_showScrollHelper,
+                          child: Material(
+                            elevation: 6,
+                            shadowColor: Colors.black.withValues(alpha: 0.45),
+                            color: primaryColor,
+                            borderRadius: BorderRadius.circular(24),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (_currentScrollItemIndex > 15) ...[
+                                  InkWell(
+                                    borderRadius: const BorderRadius.horizontal(
+                                      left: Radius.circular(24),
+                                    ),
+                                    onTap: () {
+                                      _scrollController.animateTo(
+                                        0,
+                                        duration:
+                                            const Duration(milliseconds: 350),
+                                        curve: Curves.easeOutCubic,
+                                      );
+                                    },
+                                    child: Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                          12, 9, 8, 9),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.arrow_upward_rounded,
+                                            size: 16,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onPrimary,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            'Top',
+                                            style: TextStyle(
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onPrimary,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  Container(
+                                    width: 1,
+                                    height: 16,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onPrimary
+                                        .withValues(alpha: 0.25),
+                                  ),
+                                ],
+                                InkWell(
+                                  borderRadius: BorderRadius.horizontal(
+                                    left: Radius.circular(
+                                        _currentScrollItemIndex > 15 ? 0 : 24),
+                                    right: const Radius.circular(24),
+                                  ),
+                                  onTap: () =>
+                                      _scrollToPlayingItem(animate: true),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 13,
+                                      vertical: 9,
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.my_location_rounded,
+                                          size: 16,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onPrimary,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          'Playing #${playingIndex + 1}',
+                                          style: TextStyle(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onPrimary,
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ],
       ),

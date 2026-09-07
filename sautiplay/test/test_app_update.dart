@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sautiplay/services/app_update_service.dart';
 import 'package:sautiplay/services/platform_asset_matcher.dart';
 
 void main() {
@@ -62,6 +63,11 @@ void main() {
       expect(name.endsWith('.msix') || name.contains('windows'), isTrue);
       expect(name.endsWith('.apk'), isFalse);
       expect(name.endsWith('.deb'), isFalse);
+    });
+
+    test('isInternetAvailable completes and returns a boolean without throwing', () async {
+      final available = await AppUpdateService.instance.isInternetAvailable();
+      expect(available, isA<bool>());
     });
   });
 }

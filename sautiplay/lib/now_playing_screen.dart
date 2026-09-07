@@ -157,11 +157,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   bool _isBuffering = false;
   StreamTelemetry _streamTelemetry = const StreamTelemetry();
   int _lastKnownTrackIndex = -1;
+  bool _queueMounted = false;
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController(initialPage: 0);
+    _pageController.addListener(_handlePageScroll);
     _isAnalyzerEnabled = widget.analyzerEnabled;
     _fetchLyrics();
     _fetchAudioProperties();
@@ -359,9 +361,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _telemetrySub?.cancel();
     _analyzerValuesNotifier.dispose();
     _rotationController.dispose();
+    _pageController.removeListener(_handlePageScroll);
     _pageController.dispose();
     widget.player.setAbRepeat(enabled: false, startSeconds: 0, endSeconds: 0);
     super.dispose();
+  }
+
+  void _handlePageScroll() {
+    if (!_queueMounted && _pageController.hasClients) {
+      final page = _pageController.page ?? 0.0;
+      if (page > 0.02) {
+        setState(() => _queueMounted = true);
+      }
+    }
   }
 
   Future<void> _initHardwareSpecs() async {
@@ -2934,26 +2946,29 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                   ? double.infinity
                                   : 600.0),
                           child: SafeArea(
-                            child: QueueScreen(
-                              queue: widget.queue,
-                              videoId: widget.videoId,
-                              albumArt: widget.albumArt,
-                              onPlayQueueIndex: widget.onPlayQueueIndex,
-                              onReorderQueue: widget.onReorderQueue,
-                              onRemoveFromQueue: widget.onRemoveFromQueue,
-                              onClearQueue: widget.onClearQueue,
-                              onShuffleQueue: widget.onShuffleQueue,
-                              statusNotifier: widget.statusNotifier,
-                              onClose: () {
-                                if (_pageController.hasClients) {
-                                  _pageController.animateToPage(
-                                    0,
-                                    duration: const Duration(milliseconds: 350),
-                                    curve: Curves.easeOutCubic,
-                                  );
-                                }
-                              },
-                            ),
+                            child: _queueMounted
+                                ? QueueScreen(
+                                    queue: widget.queue,
+                                    videoId: widget.videoId,
+                                    albumArt: widget.albumArt,
+                                    onPlayQueueIndex: widget.onPlayQueueIndex,
+                                    onReorderQueue: widget.onReorderQueue,
+                                    onRemoveFromQueue: widget.onRemoveFromQueue,
+                                    onClearQueue: widget.onClearQueue,
+                                    onShuffleQueue: widget.onShuffleQueue,
+                                    statusNotifier: widget.statusNotifier,
+                                    onClose: () {
+                                      if (_pageController.hasClients) {
+                                        _pageController.animateToPage(
+                                          0,
+                                          duration:
+                                              const Duration(milliseconds: 350),
+                                          curve: Curves.easeOutCubic,
+                                        );
+                                      }
+                                    },
+                                  )
+                                : const SizedBox.shrink(),
                           ),
                         ),
                       ),
@@ -3017,6 +3032,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   void _showQueueSheet(BuildContext context) {
+    if (!_queueMounted) {
+      setState(() => _queueMounted = true);
+    }
     if (_pageController.hasClients) {
       _pageController.animateToPage(
         1,
