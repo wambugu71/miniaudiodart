@@ -325,10 +325,11 @@ class MainActivity : AudioServiceActivity() {
 
     private fun buildSpecsMap(): Map<String, Any?> {
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        val sampleRate = audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toIntOrNull() ?: 48000
+        val defaultHalSampleRate = audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toIntOrNull() ?: 48000
         val periodFrames = audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER)?.toIntOrNull() ?: 192
 
         var deviceName = "Built-in Speaker"
+        var sampleRate = defaultHalSampleRate
         var bitDepth = 32
         var isFloat = true
         var deviceType = "Built-in Speaker"
@@ -337,6 +338,7 @@ class MainActivity : AudioServiceActivity() {
         var btSampleRate: Int? = null
         var btBitDepth: Int? = null
         var selectedDeviceTypeCode = -1
+        var supportedSampleRates: List<Int> = emptyList()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
@@ -366,6 +368,29 @@ class MainActivity : AudioServiceActivity() {
                 val (depth, float) = bestEncodingFromDevice(dev)
                 bitDepth = depth
                 isFloat = float
+
+                val devRates = dev.sampleRates
+                if (devRates.isNotEmpty()) {
+                    supportedSampleRates = devRates.toList().sorted()
+                }
+
+                // If USB DAC or wired headset reports specific hardware sample rates:
+                if (selectedDeviceTypeCode == AudioDeviceInfo.TYPE_USB_DEVICE ||
+                    selectedDeviceTypeCode == AudioDeviceInfo.TYPE_USB_HEADSET ||
+                    selectedDeviceTypeCode == AudioDeviceInfo.TYPE_USB_ACCESSORY
+                ) {
+                    if (devRates.isNotEmpty()) {
+                        sampleRate = devRates.maxOrNull() ?: defaultHalSampleRate
+                    }
+                } else if (selectedDeviceTypeCode == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                    selectedDeviceTypeCode == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                    selectedDeviceTypeCode == AudioDeviceInfo.TYPE_LINE_ANALOG ||
+                    selectedDeviceTypeCode == 19 /* TYPE_AUX_LINE */
+                ) {
+                    if (devRates.isNotEmpty()) {
+                        sampleRate = devRates.maxOrNull() ?: defaultHalSampleRate
+                    }
+                }
             }
         }
 
@@ -381,6 +406,13 @@ class MainActivity : AudioServiceActivity() {
             btBitDepth = btInfo?.fourth
             if (!btDeviceName.isNullOrBlank()) {
                 deviceName = btDeviceName
+            }
+            if (btSampleRate != null && btSampleRate > 0) {
+                sampleRate = btSampleRate
+            }
+            if (btBitDepth != null && btBitDepth > 0) {
+                bitDepth = btBitDepth
+                isFloat = false
             }
         }
 
@@ -400,6 +432,7 @@ class MainActivity : AudioServiceActivity() {
             "bluetoothDeviceName" to btDeviceName,
             "btSampleRate" to btSampleRate,
             "btBitDepth" to btBitDepth,
+            "supportedSampleRates" to supportedSampleRates,
             "androidVersion" to Build.VERSION.SDK_INT,
             "androidRelease" to Build.VERSION.RELEASE,
         )

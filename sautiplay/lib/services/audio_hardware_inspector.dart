@@ -31,6 +31,8 @@ class AudioHardwareSpecs {
   final int? btSampleRate; // BT codec negotiated sample rate
   final int? btBitDepth; // BT codec bit depth
 
+  final List<int> supportedSampleRates;
+
   // ── System info ───────────────────────────────────────────────────────────
   final int? androidVersion; // Android SDK version
   final String? androidRelease; // Android version string (e.g. "14")
@@ -54,6 +56,7 @@ class AudioHardwareSpecs {
     this.bluetoothDeviceName,
     this.btSampleRate,
     this.btBitDepth,
+    this.supportedSampleRates = const [],
     this.androidVersion,
     this.androidRelease,
   });
@@ -65,12 +68,33 @@ class AudioHardwareSpecs {
         ? m['deviceName'].toString()
         : 'Default Soundcard';
 
+    final int? btRate = (m['btSampleRate'] as num?)?.toInt();
+    final int? btBits = (m['btBitDepth'] as num?)?.toInt();
+    final int rawRate = (m['sampleRate'] as num?)?.toInt() ?? 48000;
+    final int rawBitDepth = (m['bitDepth'] as num?)?.toInt() ?? 32;
+    final bool rawIsFloat = (m['isFloat'] as bool?) ?? true;
+
+    final isBt = rawDevType.contains('Bluetooth') ||
+        rawDevType.contains('bluetooth') ||
+        m['bluetoothCodec'] != null;
+
+    final int effectiveSampleRate =
+        (isBt && btRate != null && btRate > 0) ? btRate : rawRate;
+    final int effectiveBitDepth =
+        (isBt && btBits != null && btBits > 0) ? btBits : rawBitDepth;
+    final bool effectiveIsFloat = isBt ? false : rawIsFloat;
+
+    final supportedRatesRaw = m['supportedSampleRates'];
+    final List<int> supportedRates = (supportedRatesRaw is List)
+        ? supportedRatesRaw.map((e) => (e as num).toInt()).toList()
+        : const <int>[];
+
     return AudioHardwareSpecs(
       backendName: 'AAudio / Android HAL',
       deviceName: devName,
-      sampleRate: (m['sampleRate'] as num?)?.toInt() ?? 48000,
-      bitDepth: (m['bitDepth'] as num?)?.toInt() ?? 32,
-      isFloat: (m['isFloat'] as bool?) ?? true,
+      sampleRate: effectiveSampleRate,
+      bitDepth: effectiveBitDepth,
+      isFloat: effectiveIsFloat,
       channels: (m['channels'] as num?)?.toInt() ?? 2,
       periodSizeFrames: (m['periodSizeFrames'] as num?)?.toInt() ?? 192,
       periodCount: (m['periodCount'] as num?)?.toInt() ?? 2,
@@ -82,8 +106,9 @@ class AudioHardwareSpecs {
       isDirectPcm: m['isDirectPcm'] == true,
       bluetoothCodec: m['bluetoothCodec']?.toString(),
       bluetoothDeviceName: m['bluetoothDeviceName']?.toString(),
-      btSampleRate: (m['btSampleRate'] as num?)?.toInt(),
-      btBitDepth: (m['btBitDepth'] as num?)?.toInt(),
+      btSampleRate: btRate,
+      btBitDepth: btBits,
+      supportedSampleRates: supportedRates,
       androidVersion: (m['androidVersion'] as num?)?.toInt(),
       androidRelease: m['androidRelease']?.toString(),
     );
@@ -249,7 +274,9 @@ class AudioHardwareSpecs {
             bluetoothCodec == 'LC3',
       ));
     } else {
-      final routeRate = '$sampleRate Hz / $bitDepth-bit';
+      final kHz = (sampleRate / 1000.0)
+          .toStringAsFixed(sampleRate % 1000 == 0 ? 0 : 1);
+      final routeRate = '$kHz kHz / $bitDepth-bit';
       nodes.add(SignalChainNode(
         label: deviceType,
         sublabel: routeRate,
@@ -265,14 +292,14 @@ class AudioHardwareSpecs {
             ? dspHardware!
             : deviceName);
 
-    String outSub;
-    if (isBluetooth) {
-      outSub = btSampleRate != null
-          ? '${(btSampleRate! / 1000.0).toStringAsFixed(0)}kHz / ${btBitDepth ?? 16}-bit Out'
-          : 'Bluetooth Output';
-    } else {
-      outSub = '$sampleRate Hz Out';
-    }
+    final effRate = (isBluetooth && btSampleRate != null && btSampleRate! > 0)
+        ? btSampleRate!
+        : sampleRate;
+    final effBits = (isBluetooth && btBitDepth != null && btBitDepth! > 0)
+        ? btBitDepth!
+        : bitDepth;
+    final kHz = (effRate / 1000.0).toStringAsFixed(effRate % 1000 == 0 ? 0 : 1);
+    final outSub = '$kHz kHz / $effBits-bit Out';
 
     nodes.add(SignalChainNode(
       label: effectiveDeviceName,

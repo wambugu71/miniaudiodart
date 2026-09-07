@@ -35,7 +35,8 @@ class MainActivity : FlutterActivity() {
                     val sampleRateStr = audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)
                     val bufferSizeStr = audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER)
 
-                    val sampleRate = sampleRateStr?.toIntOrNull() ?: 48000
+                    val defaultHalRate = sampleRateStr?.toIntOrNull() ?: 48000
+                    var sampleRate = defaultHalRate
                     val periodFrames = bufferSizeStr?.toIntOrNull() ?: 192
 
                     var deviceName = "Default Output Device"
@@ -76,6 +77,11 @@ class MainActivity : FlutterActivity() {
                                 deviceType = "Bluetooth Wireless"
                             } else if (devType == 3 || devType == 4) {
                                 deviceType = "3.5mm Headphone Jack"
+                            }
+
+                            val devRates = dev.sampleRates
+                            if (devRates.isNotEmpty()) {
+                                sampleRate = devRates.maxOrNull() ?: defaultHalRate
                             }
 
                             val encodings = dev.encodings

@@ -43,6 +43,7 @@ import 'package:sautiplay/services/dlna_service.dart';
 import 'package:sautiplay/services/dlna_renderer_service.dart';
 import 'package:sautiplay/services/local_media_server.dart';
 import 'services/ftp_service.dart';
+import 'services/audio_hardware_inspector.dart';
 import 'streaming_service.dart';
 
 void main() {
@@ -204,6 +205,7 @@ class _PlayerShellState extends State<PlayerShell> {
   StreamSubscription? _logSubscription;
   StreamSubscription? _replayGainSubscription;
   StreamSubscription? _bufferingSubscription;
+  StreamSubscription<AudioHardwareSpecs>? _hardwareSubscription;
 
   final List<double> _eqFrequencies = const [
     31.25,
@@ -354,6 +356,15 @@ class _PlayerShellState extends State<PlayerShell> {
       }
     });
 
+    _hardwareSubscription =
+        AudioHardwareInspector.hardwareStream(_player).listen((specs) {
+      if (!mounted) return;
+      // When engine output sample rate is set to Native (0), match active device hardware rate
+      if (_outputSampleRate == 0 && specs.sampleRate > 0) {
+        _player.setOutputSampleRate(specs.sampleRate);
+      }
+    });
+
     if (Platform.isAndroid) {
       unawaited(_ensureNotificationPermission());
     }
@@ -486,6 +497,14 @@ class _PlayerShellState extends State<PlayerShell> {
     });
 
     // Apply basic engine settings
+    if (_outputSampleRate > 0) {
+      _player.setOutputSampleRate(_outputSampleRate);
+    } else {
+      final activeRate = AudioHardwareInspector.currentSpecs?.sampleRate;
+      if (activeRate != null && activeRate > 0) {
+        _player.setOutputSampleRate(activeRate);
+      }
+    }
     _player.setExclusiveMode(_exclusiveMode);
     _player.setCrossfadeEnabled(_crossfadeEnabled);
     _player.setCrossfadeDurationMs(_crossfadeDurationMs);
@@ -631,6 +650,7 @@ class _PlayerShellState extends State<PlayerShell> {
     _logSubscription?.cancel();
     _replayGainSubscription?.cancel();
     _bufferingSubscription?.cancel();
+    _hardwareSubscription?.cancel();
     _metadata.removeListener(_applyReplayGain);
     _metadata.removeListener(_extractArtworkTheme);
     DlnaRendererService.instance.stopInternal();
@@ -2698,6 +2718,11 @@ class _PlayerShellState extends State<PlayerShell> {
                   outputSampleRate: _outputSampleRate,
                   onOutputSampleRateChanged: (v) {
                     setState(() => _outputSampleRate = v);
+                    if (v == 0) {
+                      final activeRate =
+                          AudioHardwareInspector.currentSpecs?.sampleRate ?? 48000;
+                      _player.setOutputSampleRate(activeRate);
+                    }
                     _saveEngineSettings();
                   },
                   outputChannels: _outputChannels,

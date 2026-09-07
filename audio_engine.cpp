@@ -11160,6 +11160,7 @@ extern "C"
             jclass audioManagerClass = env->FindClass("android/media/AudioManager");
             if (!audioManagerClass) { env->ExceptionClear(); break; }
 
+            int defaultHalRate = 48000;
             jmethodID getPropertyMethod = env->GetMethodID(audioManagerClass, "getProperty", "(Ljava/lang/String;)Ljava/lang/String;");
             if (getPropertyMethod)
             {
@@ -11175,7 +11176,7 @@ extern "C"
                             int parsedRate = std::atoi(rateUtf);
                             if (parsedRate > 0)
                             {
-                                info->sample_rate = parsedRate;
+                                defaultHalRate = parsedRate;
                             }
                             env->ReleaseStringUTFChars(rateStr, rateUtf);
                         }
@@ -11221,6 +11222,7 @@ extern "C"
             jmethodID getProductNameMethod = env->GetMethodID(deviceInfoClass, "getProductName", "()Ljava/lang/CharSequence;");
             jmethodID getTypeMethod = env->GetMethodID(deviceInfoClass, "getType", "()I");
             jmethodID getEncodingsMethod = env->GetMethodID(deviceInfoClass, "getEncodings", "()[I");
+            jmethodID getSampleRatesMethod = env->GetMethodID(deviceInfoClass, "getSampleRates", "()[I");
             jclass charSeqClass = env->FindClass("java/lang/CharSequence");
             jmethodID toStringMethod = (charSeqClass && getProductNameMethod) ? env->GetMethodID(charSeqClass, "toString", "()Ljava/lang/String;") : nullptr;
 
@@ -11311,7 +11313,49 @@ extern "C"
                     }
                 }
 
+                if (getSampleRatesMethod)
+                {
+                    jintArray ratesArray = (jintArray)env->CallObjectMethod(selectedDevice, getSampleRatesMethod);
+                    if (ratesArray)
+                    {
+                        jsize rLen = env->GetArrayLength(ratesArray);
+                        jint* rates = env->GetIntArrayElements(ratesArray, nullptr);
+                        if (rates && rLen > 0)
+                        {
+                            int maxRate = 0;
+                            for (jsize r = 0; r < rLen; ++r)
+                            {
+                                if (rates[r] > maxRate) maxRate = rates[r];
+                            }
+                            if (maxRate > 0 && (selectedPriority == 4 /* USB DAC */ || selectedPriority == 2 /* Wired */))
+                            {
+                                info->sample_rate = maxRate;
+                            }
+                            env->ReleaseIntArrayElements(ratesArray, rates, JNI_ABORT);
+                        }
+                        env->DeleteLocalRef(ratesArray);
+                    }
+                }
+
                 env->DeleteLocalRef(selectedDevice);
+            }
+
+            if (selectedPriority == 4 /* USB DAC */)
+            {
+                if (info->sample_rate <= 0) info->sample_rate = defaultHalRate;
+            }
+            else if (selectedPriority == 3 /* Bluetooth */)
+            {
+                // If sample_rate was not pre-filled by the device negotiation, use default HAL rate
+                if (info->sample_rate <= 0) info->sample_rate = defaultHalRate;
+            }
+            else
+            {
+                // Built-in speaker / 3.5mm jack
+                if (info->sample_rate <= 0 || selectedPriority <= 1)
+                {
+                    info->sample_rate = defaultHalRate;
+                }
             }
 
             if (info->sample_rate > 0 && info->period_size_frames > 0)
