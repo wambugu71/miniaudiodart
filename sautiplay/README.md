@@ -42,6 +42,7 @@ So instead of using existing high-level wrappers, I built my own low-latency C++
 - **Bypassing OEM junk without root (on supported devices)**: The engine talks directly to Android's AAudio API and requests low-latency MMAP (Memory-Mapped) mode. On supported devices, this writes audio straight to the hardware driver, stepping clean around Android's shared mixer and bypassing forced OEM sound processing (Dolby Atmos, DTS:X, and factory EQs) completely root-free. Because Android hardware varies and some devices or vendor HALs might reject direct MMAP or bit-perfect streams, the engine gracefully falls back while still staying in the lowest-latency mode the device will allow.
 - **Top-tier built-in resamplers**: Instead of letting Android do a sloppy job resampling your tracks, the engine integrates industry-standard resamplers — **`libsamplerate`**, **`r8brain`**, and **`libsoxr`**. When a local track has to be converted, it's done with high-precision sinc math so you get zero phase distortion or muffled highs. The only exception is online/network streams, which play through FFmpeg's default resampler for fast, reliable live decoding.
 - **Auto sample rate matching**: If your phone or external DAC supports it, the engine automatically switches its sample rate to match whatever track you're playing.
+- **Battle-tested open-source DSP algorithms**: Instead of using untested sound gimmicks, the processing chain relies on proven, open-source audio DSP algorithms — including Robert Bristow-Johnson's Audio EQ Cookbook biquad equations, BS2B (Bauer stereophonic-to-binaural) crossfeed, partitioned FFT convolution for headphone/room impulse responses, tube analog warmth modeling, and WSOLA time-stretching. Each algorithm was modeled and verified in MATLAB first, ensuring pure acoustic accuracy before writing the native C++ implementation.
 - **Handling real-world Android quirks**: Android devices are unpredictable. Some phones gladly accept bit-perfect or direct MMAP streams, while others reject them outright. The engine is built for this reality: even if a device rejects strict bit-perfect mode, it still locks in low-latency AAudio buffers and uses its own clean internal resampler. You get the cleanest possible sound your hardware will allow without the operating system getting in the way.
 
 ## Features
@@ -242,9 +243,14 @@ Join our Telegram group for updates, questions, and discussion:
 
 ## Credits & Acknowledgements
 
-Sautiplay and the Sautiflow engine rely on several fantastic open-source projects and tools:
+Sautiplay and the Sautiflow engine rely on several fantastic open-source projects, algorithms, and tools:
 
 - **MATLAB**: Used extensively for DSP modeling, filter simulation, acoustic response curves, and verifying resampler behavior before writing the C++ code.
+- **Open-Source DSP Algorithms**:
+  - **Robert Bristow-Johnson (RBJ) Audio EQ Cookbook**: Standard second-order IIR biquad equations powering our parametric, peaking, shelving, notch, and pass filters.
+  - **BS2B (Boris Mikhaylov)**: Bauer stereophonic-to-binaural crossfeed algorithm for natural, fatigue-free headphone listening.
+  - **Partitioned Overlap-Add FFT Convolution**: High-efficiency frequency-domain convolution for AutoEQ and custom stereo impulse response (.wav) processing.
+  - **WSOLA (Waveform Similarity Overlap-Add)**: Time-domain audio scaling for smooth playback speed changes without pitch distortion.
 - **miniaudio** (David Reid): The core multi-platform audio library powering low-level playback and hardware device backends (AAudio, WASAPI, CoreAudio, ALSA, PulseAudio).
 - **libsamplerate** (Erik de Castro Lopo / Secret Rabbit Code): High-quality sample rate converter for local playback.
 - **r8brain-free-src** (Aleksey Vaneev / Voxengo): High-performance, professional-grade sample rate converter.

@@ -148,12 +148,22 @@
         </ul>
       </article>
 
-      <article class="feat feat-wide">
-        <h3 class="mono">03 — AUTO-RATE MATCHING &amp; REAL-WORLD ANDROID QUIRKS</h3>
+      <article class="feat">
+        <h3 class="mono">03 — OPEN-SOURCE DSP ALGORITHMS</h3>
+        <ul>
+          <li>Instead of untested sound gimmicks, the engine relies on proven open-source DSP algorithms.</li>
+          <li>Uses RBJ Audio EQ Cookbook equations for parametric, shelving, and notch biquads.</li>
+          <li>BS2B crossfeed for fatigue-free headphone listening and partitioned FFT convolution for impulse responses.</li>
+          <li>Simulated and verified in MATLAB first to ensure mathematical accuracy before native C++ implementation.</li>
+        </ul>
+      </article>
+
+      <article class="feat">
+        <h3 class="mono">04 — AUTO-RATE MATCHING &amp; REAL-WORLD ANDROID QUIRKS</h3>
         <ul>
           <li><strong>Song-to-DAC Rate Matching:</strong> Whenever your device or DAC supports it, Sautiplay automatically switches its sample rate to match the playing song.</li>
           <li><strong>Handling Rejections Gracefully:</strong> Android hardware varies wildly. Some phones gladly accept bit-perfect or MMAP output, while others reject it outright.</li>
-          <li><strong>Smart Fallback:</strong> If a device rejects strict bit-perfect mode, Sautiplay doesn't throw you back to the OS mixer. It stays locked into low-latency AAudio buffers and lets its own clean floating-point engine do the conversion.</li>
+          <li><strong>Smart Fallback:</strong> If a device rejects strict bit-perfect mode, Sautiplay stays locked into low-latency AAudio buffers and lets its own clean floating-point engine do the conversion.</li>
         </ul>
       </article>
     </div>
@@ -603,6 +613,16 @@ flutter build macos --release --dart-define=STREAM_URL_1="..." --dart-define=STR
         <ul>
           <li><strong>FFmpeg:</strong> Stream container demuxing, decoding, and default resampling for live streams.</li>
           <li><strong>Flutter &amp; Dart:</strong> Material 3 Expressive UI and native C++ FFI bindings.</li>
+        </ul>
+      </article>
+
+      <article class="feat feat-wide">
+        <h3 class="mono">OPEN-SOURCE DSP ALGORITHMS</h3>
+        <ul>
+          <li><strong>Audio EQ Cookbook (Robert Bristow-Johnson):</strong> Standard biquad filter equations for our equalizers, shelving, notch, and pass filters.</li>
+          <li><strong>BS2B (Boris Mikhaylov):</strong> Bauer stereophonic-to-binaural crossfeed algorithm for natural, fatigue-free headphone listening.</li>
+          <li><strong>Partitioned Overlap-Add FFT Convolution:</strong> Efficient frequency-domain convolution for AutoEQ and custom stereo impulse response (.wav) processing.</li>
+          <li><strong>WSOLA (Waveform Similarity Overlap-Add):</strong> Pitch-stable time-domain audio scaling.</li>
         </ul>
       </article>
     </div>
