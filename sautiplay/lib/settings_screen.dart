@@ -20,6 +20,8 @@ import 'services/app_theme_service.dart';
 import 'services/cached_stream_service.dart';
 import 'services/lastfm_service.dart';
 import 'streaming_service.dart';
+import 'services/app_update_service.dart';
+import 'widgets/app_update_dialog.dart';
 import 'widgets/album_art_shape_selector.dart';
 import 'widgets/audio_engine_diagnostic_panel.dart';
 
@@ -711,15 +713,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   },
                                 );
                               default:
-                                return _buildCategoryCard(
-                                  title: 'Misc & System',
-                                  subtitle:
-                                      'Open source licenses, TLS, diagnostic logs',
-                                  icon: Icons.admin_panel_settings_outlined,
-                                  accentColor: _primary,
-                                  badgeText: _appVersion,
-                                  onTap: () => _navigateToSubScreen(
-                                      _buildMiscSystemSubScreen()),
+                                return ListenableBuilder(
+                                  listenable: AppUpdateService.instance,
+                                  builder: (context, _) {
+                                    final hasUpdate = AppUpdateService
+                                                .instance.stage ==
+                                            UpdateStage.available ||
+                                        AppUpdateService.instance.stage ==
+                                            UpdateStage.downloaded ||
+                                        AppUpdateService.instance.stage ==
+                                            UpdateStage.downloading;
+                                    return _buildCategoryCard(
+                                      title: 'Misc & System',
+                                      subtitle:
+                                          'Open source licenses, updates, TLS, diagnostic logs',
+                                      icon: Icons.admin_panel_settings_outlined,
+                                      accentColor:
+                                          hasUpdate ? Colors.greenAccent : _primary,
+                                      badgeText: hasUpdate
+                                          ? 'UPDATE AVAILABLE'
+                                          : _appVersion,
+                                      onTap: () => _navigateToSubScreen(
+                                          _buildMiscSystemSubScreen()),
+                                    );
+                                  },
                                 );
                             }
                           },
@@ -3561,6 +3578,114 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   leading: _buildLeadingIcon(Icons.info_outline),
                   trailing: Text(_appVersion,
                       style: TextStyle(color: _textDark, fontSize: 14)),
+                ),
+                const M3EDivider(),
+                ListenableBuilder(
+                  listenable: AppUpdateService.instance,
+                  builder: (context, _) {
+                    final updateService = AppUpdateService.instance;
+                    final isChecking =
+                        updateService.stage == UpdateStage.checking;
+                    final isAvailable =
+                        updateService.stage == UpdateStage.available;
+                    final isDownloaded =
+                        updateService.stage == UpdateStage.downloaded;
+                    final isDownloading =
+                        updateService.stage == UpdateStage.downloading;
+
+                    String subtitle = 'Check GitHub for new releases';
+                    Widget? trailing;
+
+                    if (isChecking) {
+                      subtitle = 'Checking for updates...';
+                      trailing = SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(_primary),
+                        ),
+                      );
+                    } else if (isDownloading) {
+                      final pct =
+                          (updateService.downloadProgress * 100).toInt();
+                      subtitle = 'Downloading update ($pct%)...';
+                      trailing = Text(
+                        '$pct%',
+                        style: TextStyle(
+                          color: _primary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      );
+                    } else if (isAvailable || isDownloaded) {
+                      final release = updateService.release;
+                      subtitle = isDownloaded
+                          ? 'Downloaded ${release?.tagName ?? ""}. Ready to install!'
+                          : 'New version ${release?.tagName ?? ""} available!';
+                      trailing = Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                              color: Colors.greenAccent
+                                  .withValues(alpha: 0.5)),
+                        ),
+                        child: const Text(
+                          'UPDATE',
+                          style: TextStyle(
+                            color: Colors.greenAccent,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      );
+                    } else if (updateService.stage == UpdateStage.error) {
+                      subtitle = 'Update check failed. Tap to retry.';
+                      trailing = const Icon(Icons.refresh_rounded,
+                          color: Colors.orangeAccent, size: 20);
+                    } else {
+                      trailing = Icon(Icons.chevron_right_rounded,
+                          color: _textDark, size: 20);
+                    }
+
+                    return M3EListItem(
+                      headline: 'Check for Updates',
+                      supportingText: subtitle,
+                      leading: _buildLeadingIcon(
+                        Icons.system_update_rounded,
+                        (isAvailable || isDownloaded)
+                            ? Colors.greenAccent
+                            : _primary,
+                      ),
+                      trailing: trailing,
+                      onTap: () async {
+                        if (isDownloading || isAvailable || isDownloaded) {
+                          AppUpdateDialog.show(context);
+                        } else {
+                          final hasUpdate = await updateService
+                              .checkForUpdates(isManual: true);
+                          if (context.mounted) {
+                            if (hasUpdate) {
+                              AppUpdateDialog.show(context);
+                            } else if (updateService.stage !=
+                                UpdateStage.error) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'Sautiplay is up to date ($_appVersion)',
+                                  ),
+                                  duration: const Duration(seconds: 2),
+                                ),
+                              );
+                            }
+                          }
+                        }
+                      },
+                    );
+                  },
                 ),
                 const M3EDivider(),
                 M3EListItem(

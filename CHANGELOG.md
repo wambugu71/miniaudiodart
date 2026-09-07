@@ -1,4 +1,12 @@
 # Changelog
+## v0.6.26 — 2026-09-08
+- **[In-App Update Detection & Multi-Platform Resolution]** Added automated release detection against GitHub Releases API with strict OS and CPU ABI matching (`dart:ffi` `Abi.current()`), distinguishing Android ARM64 (`sautiflow_android_arm64.apk`), Android ARMv7 (`sautiflow_android_armv7.apk`), macOS, Windows, and Linux without platform confusion.
+- **[Background Isolate Streaming & Resumable Downloads]** Offloaded binary download, chunk streaming, and file writing to a dedicated background worker Isolate with throttled progress updates to keep the UI at a buttery smooth 120 FPS. Integrated HTTP Range headers (`206 Partial Content`) to automatically resume interrupted downloads upon network reconnection.
+- **[Material 3 Expressive Dialog & Wavy Progress]** Implemented `M3EDialog` update prompt with animated `M3EProgressIndicator.linearWavy`, even tabular byte sizing (`FontFeature.tabularFigures()`), and in-flight cancel / restart / resume controls.
+- **[Network Drop Watchdog & Safe File Handles]** Added an 18-second inactivity watchdog to gracefully handle silent network drops, with guaranteed file handle closure to prevent file locks.
+- **[Android In-App Package Installation]** Wired native `FileProvider` and `REQUEST_INSTALL_PACKAGES` permission in `MainActivity.kt` for seamless APK installation prompt.
+- **[Settings Screen Update Status]** Added interactive "Check for Updates" tile and dynamic "UPDATE AVAILABLE" category badge in Settings.
+
 ## v0.6.25 
 - Bugs fixes and performance  improvements
 - Added ability to select  backend  for  android(only). 

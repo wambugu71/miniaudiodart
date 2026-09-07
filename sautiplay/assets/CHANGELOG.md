@@ -1,3 +1,12 @@
+## v0.6.26 — 2026-09-08
+- In-App Update Detection: Automated release discovery against GitHub Releases with architecture-aware asset matching
+- Background Isolate Downloader: Smooth 120 FPS downloads via dedicated worker isolate with throttled updates
+- Resumable Downloads: Automatic HTTP Range resumption on network drop or reconnect
+- Material 3 Expressive Dialog: M3EDialog with animated M3E linear wavy progress indicator and tabular size counters
+- Resilient Error Handling: 18s inactivity watchdog for silent connection drops and guaranteed file handle safety
+- Native APK Installation: Direct package installer launch on Android with FileProvider support
+- Settings Screen Badge: Real-time update checks and notification badge in Settings
+
 ## v0.6.25 — 2026-09-03
 - Bugs fixes and performance  improvements
 - Added ability to select  backend  for  android(only). 

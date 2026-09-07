@@ -421,6 +421,7 @@ extension AppThemeContextExtension on BuildContext {
   Color get surfaceDarkerColor => appTheme.cardDark.withValues(alpha: 0.8);
   Color get primaryColor => appTheme.primary;
   Color get textMuted => appTheme.textDark;
+  Color get textDark => appTheme.textDark;
   bool get isDark => bgDark.computeLuminance() < 0.15;
   Color get textPrimary => isDark ? Colors.white : const Color(0xFF1A1A2E);
   Color get outlineColor => (isDark ? Colors.white : const Color(0xFF1A1A2E)).withValues(alpha: 0.12);

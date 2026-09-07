@@ -19,6 +19,7 @@ import 'components/m3e_focus_ring.dart';
 import 'components/m3e_radius_and_padding_motion.dart';
 import 'enums/m3e_button_enums.dart';
 
+export 'enums/m3e_button_enums.dart';
 export 'models/m3e_button_measurements.dart';
 export 'res/m3e_button_constants.dart';
 export 'styles/m3e_button_theme.dart';
