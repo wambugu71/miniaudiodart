@@ -3832,6 +3832,77 @@ class _EqScreenState extends State<EqScreen>
     );
   }
 
+  Widget _buildM3EDropdown<T>({
+    required T value,
+    required List<M3EDropdownItem<T>> items,
+    required ValueChanged<T> onChanged,
+    String? hintText,
+    Color? accentColor,
+    bool searchEnabled = false,
+    bool singleSelect = true,
+    bool showChipAnimation = false,
+    EdgeInsetsGeometry padding =
+        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    double maxHeight = 300,
+  }) {
+    final effectiveAccent = accentColor ?? primaryColor;
+    final mappedItems = items.map((item) {
+      final isSelected = !item.disabled && item.value == value;
+      return item.selected == isSelected
+          ? item
+          : item.copyWith(selected: isSelected);
+    }).toList();
+
+    return M3EDropdownMenu<T>(
+      singleSelect: singleSelect,
+      searchEnabled: searchEnabled,
+      showChipAnimation: showChipAnimation,
+      items: mappedItems,
+      fieldStyle: M3EDropdownFieldStyle(
+        hintText: hintText,
+        backgroundColor: surfaceDarkerColor,
+        foregroundColor: Colors.white,
+        border: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+        focusedBorder: BorderSide(color: effectiveAccent),
+        borderRadius: BorderRadius.circular(10),
+        padding: padding,
+        showArrow: true,
+        selectedTextStyle: const TextStyle(
+          color: Colors.white,
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      dropdownStyle: M3EDropdownPanelStyle(
+        backgroundColor: surfaceDarkerColor,
+        containerRadius: 14,
+        maxHeight: maxHeight,
+      ),
+      searchStyle: const M3EDropdownSearchStyle(
+        hintText: 'Search...',
+        hintStyle: TextStyle(color: Colors.white38, fontSize: 13),
+        textStyle: TextStyle(color: Colors.white, fontSize: 13),
+      ),
+      itemStyle: M3EDropdownItemStyle(
+        textColor: Colors.white70,
+        selectedTextColor: effectiveAccent,
+        selectedTextStyle: TextStyle(
+          color: effectiveAccent,
+          fontSize: 13,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      onSelectionChanged: (selected) {
+        if (selected.isNotEmpty) {
+          final chosen = selected.first.value;
+          if (chosen != value) {
+            onChanged(chosen);
+          }
+        }
+      },
+    );
+  }
+
   Widget _buildCrossfeedSection() {
     return _CollapsibleSection(
       icon: /* M3EContainer(
@@ -3865,49 +3936,29 @@ class _EqScreenState extends State<EqScreen>
                     color: Colors.white.withValues(alpha: 0.85),
                     fontSize: 13.5,
                     fontWeight: FontWeight.w600)),
-            /* M3EContainer(
-              Shapes.pill,
-              color: surfaceDarkColor,
-              border: BorderSide(color: primaryColor.withValues(alpha: 0.35)),
-              child:*/
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<int>(
-                  value: _crossfeedAlgorithmIndex,
-                  dropdownColor: surfaceDarkerColor,
-                  icon:
-                      Icon(Icons.arrow_drop_down_rounded, color: primaryColor),
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600),
-                  items: const [
-                    DropdownMenuItem(
-                        value: 1, child: Text('Simple Reference (Headphones)')),
-                    DropdownMenuItem(
-                        value: 2, child: Text('Bauer BS2B (Headphones)')),
-                    DropdownMenuItem(
-                        value: 3, child: Text('Jan Meier (Headphones)')),
-                    DropdownMenuItem(
-                        value: 4, child: Text('Custom Natural (Headphones)')),
-                    DropdownMenuItem(
-                        value: 5,
-                        child:
-                            Text('Ambiophonics RACE (Speakers / Dipole XTC)')),
-                  ],
-                  onChanged: (val) {
-                    if (val != null) {
-                      setState(() {
-                        _crossfeedAlgorithmIndex = val;
-                        _crossfeedEnabled = true;
-                      });
-                      _updateCrossfeed();
-                      _saveEqState();
-                    }
-                  },
-                  // ),
-                ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildM3EDropdown<int>(
+                value: _crossfeedAlgorithmIndex,
+                items: const [
+                  M3EDropdownItem(
+                      label: 'Simple Reference (Headphones)', value: 1),
+                  M3EDropdownItem(label: 'Bauer BS2B (Headphones)', value: 2),
+                  M3EDropdownItem(label: 'Jan Meier (Headphones)', value: 3),
+                  M3EDropdownItem(
+                      label: 'Custom Natural (Headphones)', value: 4),
+                  M3EDropdownItem(
+                      label: 'Ambiophonics RACE (Speakers / Dipole XTC)',
+                      value: 5),
+                ],
+                onChanged: (val) {
+                  setState(() {
+                    _crossfeedAlgorithmIndex = val;
+                    _crossfeedEnabled = true;
+                  });
+                  _updateCrossfeed();
+                  _saveEqState();
+                },
               ),
             ),
           ],
@@ -4713,67 +4764,43 @@ class _EqScreenState extends State<EqScreen>
     ];
   }
 
-  List<DropdownMenuItem<String>> _buildParametricDropdownItems() {
-    final items = <DropdownMenuItem<String>>[];
+  List<M3EDropdownItem<String>> _buildParametricM3EDropdownItems() {
+    final items = <M3EDropdownItem<String>>[];
 
     // Built-in presets header
-    items.add(DropdownMenuItem<String>(
-      enabled: false,
+    items.add(const M3EDropdownItem<String>(
+      disabled: true,
       value: '__header_builtin__',
-      child: Text(
-        '— PARAMETRIC PRESETS —',
-        style: TextStyle(
-          color: primaryColor,
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 0.8,
-        ),
-      ),
+      label: '— PARAMETRIC PRESETS —',
     ));
 
     for (final name in _builtInParametricPresets.keys) {
       if (name == 'Octave Series (30-60-120...)') {
-        items.add(DropdownMenuItem<String>(
-          enabled: false,
+        items.add(const M3EDropdownItem<String>(
+          disabled: true,
           value: '__header_series__',
-          child: Text(
-            '— FREQUENCY SERIES —',
-            style: TextStyle(
-              color: primaryColor,
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.8,
-            ),
-          ),
+          label: '— FREQUENCY SERIES —',
         ));
       }
 
-      items.add(DropdownMenuItem<String>(
+      items.add(M3EDropdownItem<String>(
         value: name,
-        child: Text(name, overflow: TextOverflow.ellipsis),
+        label: name,
       ));
     }
 
     // User profiles header
     if (_userParametricProfiles.isNotEmpty) {
-      items.add(DropdownMenuItem<String>(
-        enabled: false,
+      items.add(const M3EDropdownItem<String>(
+        disabled: true,
         value: '__header_user__',
-        child: Text(
-          '— SAVED PROFILES —',
-          style: TextStyle(
-            color: primaryColor,
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 0.8,
-          ),
-        ),
+        label: '— SAVED PROFILES —',
       ));
 
       for (final name in _userParametricProfiles.keys) {
-        items.add(DropdownMenuItem<String>(
+        items.add(M3EDropdownItem<String>(
           value: name,
-          child: Text(name, overflow: TextOverflow.ellipsis),
+          label: name,
         ));
       }
     }
@@ -4785,9 +4812,9 @@ class _EqScreenState extends State<EqScreen>
             : 'Custom';
 
     if (!items.any((item) => item.value == currentSelected)) {
-      items.add(DropdownMenuItem<String>(
+      items.add(M3EDropdownItem<String>(
         value: currentSelected,
-        child: Text(currentSelected == 'Custom' ? 'Custom' : currentSelected),
+        label: currentSelected == 'Custom' ? 'Custom' : currentSelected,
       ));
     }
 
@@ -4838,38 +4865,18 @@ class _EqScreenState extends State<EqScreen>
           children: [
             // Dropdown in expanded container
             Expanded(
-              child: Container(
-                height: 40,
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                decoration: BoxDecoration(
-                  color: surfaceDarkerColor,
-                  borderRadius: BorderRadius.circular(10),
-                  border:
-                      Border.all(color: Colors.white.withValues(alpha: 0.12)),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _getAllParametricPresetNames()
-                            .contains(_parametricPreset)
-                        ? _parametricPreset
-                        : 'Custom',
-                    isExpanded: true,
-                    dropdownColor: surfaceDarkColor,
-                    icon: Icon(Icons.arrow_drop_down_rounded,
-                        color: primaryColor),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    items: _buildParametricDropdownItems(),
-                    onChanged: (v) {
-                      if (v != null && v != 'Custom' && !v.startsWith('__')) {
-                        _applyParametricPreset(v);
-                      }
-                    },
-                  ),
-                ),
+              child: _buildM3EDropdown<String>(
+                value: _getAllParametricPresetNames()
+                        .contains(_parametricPreset)
+                    ? _parametricPreset
+                    : 'Custom',
+                searchEnabled: true,
+                items: _buildParametricM3EDropdownItems(),
+                onChanged: (v) {
+                  if (v != 'Custom' && !v.startsWith('__')) {
+                    _applyParametricPreset(v);
+                  }
+                },
               ),
             ),
             const SizedBox(width: 6),
@@ -5047,49 +5054,37 @@ class _EqScreenState extends State<EqScreen>
               ),
               const SizedBox(height: 8),
               // Type Selector
-              DropdownButtonHideUnderline(
-                child: DropdownButton<EqBandType>(
-                  value: band.type,
-                  isExpanded: true,
-                  dropdownColor: surfaceDarkerColor,
-                  icon: const Icon(Icons.arrow_drop_down_rounded,
-                      color: Colors.white54),
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600),
-                  items: EqBandType.values
-                      .map((t) => DropdownMenuItem(
-                            value: t,
-                            child: Text(switch (t) {
-                              EqBandType.peak => 'Peak EQ',
-                              EqBandType.bandpass => 'Band-Pass',
-                              EqBandType.notch => 'Notch',
-                              EqBandType.lowshelf => 'Low Shelf',
-                              EqBandType.highshelf => 'High Shelf',
-                              EqBandType.lowpass => 'Low-Pass',
-                              EqBandType.highpass => 'High-Pass',
-                            }),
-                          ))
-                      .toList(),
-                  onChanged: (v) {
-                    if (v != null) {
-                      setState(() {
-                        _parametricBands[index] = EqBandConfig(
-                          type: v,
-                          frequencyHz: band.frequencyHz,
-                          enabled: band.enabled,
-                          q: band.q,
-                          gainDb: band.gainDb,
-                          slope: band.slope,
-                        );
-                        _parametricPreset = 'Custom';
-                        _applyParametricBands();
-                        _saveEqState();
-                      });
-                    }
-                  },
-                ),
+              _buildM3EDropdown<EqBandType>(
+                value: band.type,
+                items: EqBandType.values
+                    .map((t) => M3EDropdownItem<EqBandType>(
+                          value: t,
+                          label: switch (t) {
+                            EqBandType.peak => 'Peak EQ',
+                            EqBandType.bandpass => 'Band-Pass',
+                            EqBandType.notch => 'Notch',
+                            EqBandType.lowshelf => 'Low Shelf',
+                            EqBandType.highshelf => 'High Shelf',
+                            EqBandType.lowpass => 'Low-Pass',
+                            EqBandType.highpass => 'High-Pass',
+                          },
+                        ))
+                    .toList(),
+                onChanged: (v) {
+                  setState(() {
+                    _parametricBands[index] = EqBandConfig(
+                      type: v,
+                      frequencyHz: band.frequencyHz,
+                      enabled: band.enabled,
+                      q: band.q,
+                      gainDb: band.gainDb,
+                      slope: band.slope,
+                    );
+                    _parametricPreset = 'Custom';
+                    _applyParametricBands();
+                    _saveEqState();
+                  });
+                },
               ),
               const SizedBox(height: 12),
               Row(
@@ -5407,48 +5402,40 @@ class _EqScreenState extends State<EqScreen>
                 fontWeight: FontWeight.w600,
               ),
             ),
-            DropdownButtonHideUnderline(
-              child: DropdownButton<HarmonicBassProfile>(
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildM3EDropdown<HarmonicBassProfile>(
                 value: _bassProfile,
-                dropdownColor: surfaceDarkerColor,
-                icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
                 items: const [
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: HarmonicBassProfile.dynamicMultiPole,
-                    child: Text('Dynamic(19 Presets)'),
+                    label: 'Dynamic(19 Presets)',
                   ),
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: HarmonicBassProfile.naturalBass,
-                    child: Text('Natural'),
+                    label: 'Natural',
                   ),
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: HarmonicBassProfile.pureBass,
-                    child: Text('Pure'),
+                    label: 'Pure',
                   ),
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: HarmonicBassProfile.subwoofer,
-                    child: Text('Aggressive'),
+                    label: 'Aggressive',
                   ),
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: HarmonicBassProfile.harmonicExciter,
-                    child: Text('Harmonic'),
+                    label: 'Harmonic',
                   ),
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: HarmonicBassProfile.pultecDeep,
-                    child: Text('Pultec'),
+                    label: 'Pultec',
                   ),
                 ],
                 onChanged: (val) {
-                  if (val != null) {
-                    setState(() => _bassProfile = val);
-                    if (_bassEnabled) _updateHarmonicBass();
-                    _saveEqState();
-                  }
+                  setState(() => _bassProfile = val);
+                  if (_bassEnabled) _updateHarmonicBass();
+                  _saveEqState();
                 },
               ),
             ),
@@ -5471,7 +5458,7 @@ class _EqScreenState extends State<EqScreen>
           const SizedBox(height: 12),
           // 19 Preset Selection Dropdown
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
               color: surfaceDarkerColor,
               borderRadius: BorderRadius.circular(14),
@@ -5494,39 +5481,21 @@ class _EqScreenState extends State<EqScreen>
                     ),
                   ],
                 ),
-                DropdownButtonHideUnderline(
-                  child: DropdownButton<int>(
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildM3EDropdown<int>(
                     value: _bassPreset,
-                    dropdownColor: surfaceDarkerColor,
-                    icon: Icon(Icons.arrow_drop_down_rounded,
-                        color: primaryColor),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
+                    searchEnabled: true,
                     items: DynamicBassPreset.values
-                        .map((preset) => DropdownMenuItem<int>(
+                        .map((preset) => M3EDropdownItem<int>(
                               value: preset.value,
-                              child: Text(
-                                '${preset.value + 1}. ${preset.label}',
-                                style: TextStyle(
-                                  color: _bassPreset == preset.value
-                                      ? primaryColor
-                                      : Colors.white,
-                                  fontWeight: _bassPreset == preset.value
-                                      ? FontWeight.bold
-                                      : FontWeight.normal,
-                                ),
-                              ),
+                              label: '${preset.value + 1}. ${preset.label}',
                             ))
                         .toList(),
                     onChanged: (val) {
-                      if (val != null) {
-                        setState(() => _bassPreset = val);
-                        if (_bassEnabled) _updateHarmonicBass();
-                        _saveEqState();
-                      }
+                      setState(() => _bassPreset = val);
+                      if (_bassEnabled) _updateHarmonicBass();
+                      _saveEqState();
                     },
                   ),
                 ),
@@ -5765,31 +5734,22 @@ class _EqScreenState extends State<EqScreen>
                 fontWeight: FontWeight.w600,
               ),
             ),
-            DropdownButtonHideUnderline(
-              child: DropdownButton<TransducerProfile>(
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildM3EDropdown<TransducerProfile>(
                 value: _dynamicSystemProfile,
-                dropdownColor: surfaceDarkerColor,
-                icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
                 items: TransducerProfile.values.map((profile) {
-                  return DropdownMenuItem<TransducerProfile>(
+                  return M3EDropdownItem<TransducerProfile>(
                     value: profile,
-                    child: Text(
-                      profile.label.isNotEmpty ? profile.label : profile.name,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    label: profile.label.isNotEmpty
+                        ? profile.label
+                        : profile.name,
                   );
                 }).toList(),
                 onChanged: (val) {
-                  if (val != null) {
-                    setState(() => _dynamicSystemProfile = val);
-                    if (_dynamicSystemEnabled) _updateDynamicSystem();
-                    _saveEqState();
-                  }
+                  setState(() => _dynamicSystemProfile = val);
+                  if (_dynamicSystemEnabled) _updateDynamicSystem();
+                  _saveEqState();
                 },
               ),
             ),
@@ -5855,40 +5815,32 @@ class _EqScreenState extends State<EqScreen>
                 fontWeight: FontWeight.w600,
               ),
             ),
-            DropdownButtonHideUnderline(
-              child: DropdownButton<AudioClarityProfile>(
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildM3EDropdown<AudioClarityProfile>(
                 value: _clarityProfile,
-                dropdownColor: surfaceDarkerColor,
-                icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
                 items: const [
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: AudioClarityProfile.transientCrisp,
-                    child: Text('Crisp'),
+                    label: 'Crisp',
                   ),
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: AudioClarityProfile.airShelf,
-                    child: Text('Air'),
+                    label: 'Air',
                   ),
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: AudioClarityProfile.presenceExciter,
-                    child: Text('Vocal'),
+                    label: 'Vocal',
                   ),
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: AudioClarityProfile.harmonicBrilliance,
-                    child: Text('Harmonic'),
+                    label: 'Harmonic',
                   ),
                 ],
                 onChanged: (val) {
-                  if (val != null) {
-                    setState(() => _clarityProfile = val);
-                    if (_clarityEnabled) _updateClarity();
-                    _saveEqState();
-                  }
+                  setState(() => _clarityProfile = val);
+                  if (_clarityEnabled) _updateClarity();
+                  _saveEqState();
                 },
               ),
             ),
@@ -5956,61 +5908,53 @@ class _EqScreenState extends State<EqScreen>
                 fontWeight: FontWeight.w600,
               ),
             ),
-            DropdownButtonHideUnderline(
-              child: DropdownButton<DialogEnhancerProfile>(
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildM3EDropdown<DialogEnhancerProfile>(
                 value: _dialogEnhancerProfile,
-                dropdownColor: surfaceDarkerColor,
-                icon: Icon(Icons.arrow_drop_down_rounded, color: dialogColor),
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
+                accentColor: dialogColor,
                 items: DialogEnhancerProfile.values.map((profile) {
-                  return DropdownMenuItem<DialogEnhancerProfile>(
+                  return M3EDropdownItem<DialogEnhancerProfile>(
                     value: profile,
-                    child: Text(
-                      profile.label.isNotEmpty ? profile.label : profile.name,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    label: profile.label.isNotEmpty
+                        ? profile.label
+                        : profile.name,
                   );
                 }).toList(),
                 onChanged: (val) {
-                  if (val != null) {
-                    setState(() {
-                      _dialogEnhancerProfile = val;
-                      switch (val) {
-                        case DialogEnhancerProfile.cinema:
-                          _dialogEnhancerAmount = 0.70;
-                          _dialogEnhancerDucking = 0.65;
-                          _dialogEnhancerClarity = 0.60;
-                          _dialogEnhancerCenterFocus = 0.75;
-                          break;
-                        case DialogEnhancerProfile.music:
-                          _dialogEnhancerAmount = 0.45;
-                          _dialogEnhancerDucking = 0.35;
-                          _dialogEnhancerClarity = 0.50;
-                          _dialogEnhancerCenterFocus = 0.40;
-                          break;
-                        case DialogEnhancerProfile.voice:
-                          _dialogEnhancerAmount = 0.85;
-                          _dialogEnhancerDucking = 0.75;
-                          _dialogEnhancerClarity = 0.75;
-                          _dialogEnhancerCenterFocus = 0.85;
-                          break;
-                        case DialogEnhancerProfile.night:
-                          _dialogEnhancerAmount = 0.80;
-                          _dialogEnhancerDucking = 0.85;
-                          _dialogEnhancerClarity = 0.55;
-                          _dialogEnhancerCenterFocus = 0.90;
-                          break;
-                        case DialogEnhancerProfile.custom:
-                          break;
-                      }
-                    });
-                    if (_dialogEnhancerEnabled) _updateDialogEnhancer();
-                    _saveEqState();
-                  }
+                  setState(() {
+                    _dialogEnhancerProfile = val;
+                    switch (val) {
+                      case DialogEnhancerProfile.cinema:
+                        _dialogEnhancerAmount = 0.70;
+                        _dialogEnhancerDucking = 0.65;
+                        _dialogEnhancerClarity = 0.60;
+                        _dialogEnhancerCenterFocus = 0.75;
+                        break;
+                      case DialogEnhancerProfile.music:
+                        _dialogEnhancerAmount = 0.45;
+                        _dialogEnhancerDucking = 0.35;
+                        _dialogEnhancerClarity = 0.50;
+                        _dialogEnhancerCenterFocus = 0.40;
+                        break;
+                      case DialogEnhancerProfile.voice:
+                        _dialogEnhancerAmount = 0.85;
+                        _dialogEnhancerDucking = 0.75;
+                        _dialogEnhancerClarity = 0.75;
+                        _dialogEnhancerCenterFocus = 0.85;
+                        break;
+                      case DialogEnhancerProfile.night:
+                        _dialogEnhancerAmount = 0.80;
+                        _dialogEnhancerDucking = 0.85;
+                        _dialogEnhancerClarity = 0.55;
+                        _dialogEnhancerCenterFocus = 0.90;
+                        break;
+                      case DialogEnhancerProfile.custom:
+                        break;
+                    }
+                  });
+                  if (_dialogEnhancerEnabled) _updateDialogEnhancer();
+                  _saveEqState();
                 },
               ),
             ),
@@ -6131,42 +6075,35 @@ class _EqScreenState extends State<EqScreen>
                 fontWeight: FontWeight.w600,
               ),
             ),
-            DropdownButtonHideUnderline(
-              child: DropdownButton<DownwardExpanderPreset>(
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildM3EDropdown<DownwardExpanderPreset>(
                 value: _expanderPreset,
-                dropdownColor: surfaceDarkerColor,
-                icon: Icon(Icons.arrow_drop_down_rounded, color: expanderColor),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
+                accentColor: expanderColor,
                 items: const [
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: DownwardExpanderPreset.vinylClean,
-                    child: Text('Vinyl'),
+                    label: 'Vinyl',
                   ),
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: DownwardExpanderPreset.tapeHiss,
-                    child: Text('Tape'),
+                    label: 'Tape',
                   ),
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: DownwardExpanderPreset.gentleExpansion,
-                    child: Text('Gentle'),
+                    label: 'Gentle',
                   ),
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: DownwardExpanderPreset.dynamicGate,
-                    child: Text('Dynamic'),
+                    label: 'Dynamic',
                   ),
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: DownwardExpanderPreset.custom,
-                    child: Text('Custom'),
+                    label: 'Custom',
                   ),
                 ],
                 onChanged: (val) {
-                  if (val != null) {
-                    _applyExpanderPreset(val);
-                  }
+                  _applyExpanderPreset(val);
                 },
               ),
             ),
@@ -6317,42 +6254,35 @@ class _EqScreenState extends State<EqScreen>
                 fontWeight: FontWeight.w600,
               ),
             ),
-            DropdownButtonHideUnderline(
-              child: DropdownButton<DeEsserPreset>(
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildM3EDropdown<DeEsserPreset>(
                 value: _deEsserPreset,
-                dropdownColor: surfaceDarkerColor,
-                icon: Icon(Icons.arrow_drop_down_rounded, color: deEsserColor),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
+                accentColor: deEsserColor,
                 items: const [
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: DeEsserPreset.gentleVocal,
-                    child: Text('Gentle Vocal'),
+                    label: 'Gentle Vocal',
                   ),
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: DeEsserPreset.aggressiveSibilance,
-                    child: Text('Aggressive'),
+                    label: 'Aggressive',
                   ),
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: DeEsserPreset.vintageWideband,
-                    child: Text('Vintage Wideband'),
+                    label: 'Vintage Wideband',
                   ),
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: DeEsserPreset.podcastSpeech,
-                    child: Text('Podcast / Speech'),
+                    label: 'Podcast / Speech',
                   ),
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: DeEsserPreset.custom,
-                    child: Text('Custom'),
+                    label: 'Custom',
                   ),
                 ],
                 onChanged: (val) {
-                  if (val != null) {
-                    _applyDeEsserPreset(val);
-                  }
+                  _applyDeEsserPreset(val);
                 },
               ),
             ),
@@ -6562,36 +6492,28 @@ class _EqScreenState extends State<EqScreen>
                 fontWeight: FontWeight.w600,
               ),
             ),
-            DropdownButtonHideUnderline(
-              child: DropdownButton<AnalogWarmthProfile>(
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildM3EDropdown<AnalogWarmthProfile>(
                 value: _analogWarmthProfile,
-                dropdownColor: surfaceDarkerColor,
-                icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
                 items: const [
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: AnalogWarmthProfile.triode12AX7,
-                    child: Text('Vacuum Tube'),
+                    label: 'Vacuum Tube',
                   ),
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: AnalogWarmthProfile.magneticTape,
-                    child: Text('Vintage Tape'),
+                    label: 'Vintage Tape',
                   ),
-                  DropdownMenuItem(
+                  M3EDropdownItem(
                     value: AnalogWarmthProfile.vintagePreamp,
-                    child: Text('Console Preamp'),
+                    label: 'Console Preamp',
                   ),
                 ],
                 onChanged: (val) {
-                  if (val != null) {
-                    setState(() => _analogWarmthProfile = val);
-                    if (_analogWarmthEnabled) _updateAnalogWarmth();
-                    _saveEqState();
-                  }
+                  setState(() => _analogWarmthProfile = val);
+                  if (_analogWarmthEnabled) _updateAnalogWarmth();
+                  _saveEqState();
                 },
               ),
             ),
@@ -6650,19 +6572,34 @@ class _EqScreenState extends State<EqScreen>
           controller: _hrirDropdownController,
           items: _hrirItems,
           singleSelect: true,
+          showChipAnimation: false,
           onSelectionChanged: _onHrirPresetSelected,
           fieldStyle: M3EDropdownFieldStyle(
             backgroundColor: surfaceDarkerColor,
             foregroundColor: Colors.white,
-            border: const BorderSide(color: Colors.white12),
+            border: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
             focusedBorder: BorderSide(color: primaryColor),
+            borderRadius: BorderRadius.circular(10),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            selectedTextStyle: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           dropdownStyle: M3EDropdownPanelStyle(
             backgroundColor: surfaceDarkerColor,
+            containerRadius: 14,
+            maxHeight: 300,
           ),
           itemStyle: M3EDropdownItemStyle(
             textColor: Colors.white70,
             selectedTextColor: primaryColor,
+            selectedTextStyle: TextStyle(
+              color: primaryColor,
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ),
         if (_isBuiltinHrir(_convolverIrPath)) ...[
@@ -6870,47 +6807,29 @@ class _EqScreenState extends State<EqScreen>
       },
       children: [
         // Algorithm selector
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          decoration: BoxDecoration(
-            color: surfaceDarkerColor,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.white12),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<SurroundMode>(
-              value: _surroundMode == SurroundMode.off
-                  ? SurroundMode.matrixSurround
-                  : _surroundMode,
-              dropdownColor: surfaceDarkerColor,
-              isExpanded: true,
-              icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor),
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w600),
-              items: [
-                for (final mode in [
-                  SurroundMode.matrixSurround,
-                  SurroundMode.binauralVirtualizer,
-                  SurroundMode.acousticStage,
-                ])
-                  DropdownMenuItem(
-                    value: mode,
-                    child: Text(_getSurroundModeName(mode)),
-                  ),
-              ],
-              onChanged: (mode) {
-                if (mode == null) return;
-                setState(() {
-                  _surroundMode = mode;
-                  _surroundEnabled = true;
-                });
-                _updateSurround();
-                _saveEqState();
-              },
-            ),
-          ),
+        _buildM3EDropdown<SurroundMode>(
+          value: _surroundMode == SurroundMode.off
+              ? SurroundMode.matrixSurround
+              : _surroundMode,
+          items: [
+            for (final mode in [
+              SurroundMode.matrixSurround,
+              SurroundMode.binauralVirtualizer,
+              SurroundMode.acousticStage,
+            ])
+              M3EDropdownItem<SurroundMode>(
+                value: mode,
+                label: _getSurroundModeName(mode),
+              ),
+          ],
+          onChanged: (mode) {
+            setState(() {
+              _surroundMode = mode;
+              _surroundEnabled = true;
+            });
+            _updateSurround();
+            _saveEqState();
+          },
         ),
         const SizedBox(height: 8),
         Center(
@@ -7440,26 +7359,19 @@ class _EqScreenState extends State<EqScreen>
                 fontWeight: FontWeight.w600,
               ),
             ),
-            DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildM3EDropdown<String>(
                 value: _reverbPreset,
-                dropdownColor: surfaceDarkerColor,
-                icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
+                searchEnabled: true,
                 items: _reverbPresets
-                    .map((p) => DropdownMenuItem(
+                    .map((p) => M3EDropdownItem<String>(
                           value: p.name,
-                          child: Text(p.name),
+                          label: p.name,
                         ))
                     .toList(),
                 onChanged: (val) {
-                  if (val != null) {
-                    _applyReverbPreset(val);
-                  }
+                  _applyReverbPreset(val);
                 },
               ),
             ),
