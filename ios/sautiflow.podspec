@@ -28,7 +28,7 @@ A cross-platform miniaudio-backed native engine exposed to Flutter through Dart 
   defines = 'HAVE_INTTYPES_H=1 HAVE_MEMCPY=1 HAVE_STRING_H=1 HAVE_STRINGS_H=1 HAVE_SYS_TYPES_H=1 PACKAGE="libsamplerate" VERSION="0.2.2" PACKAGE_VERSION="2.11.1" ENABLE_SINC_BEST_CONVERTER=1 ENABLE_SINC_MEDIUM_CONVERTER=1 ENABLE_SINC_FAST_CONVERTER=1 MA_NO_ASSERT MA_DR_WAV_NO_ASSERT MA_DR_FLAC_NO_ASSERT MA_DR_MP3_NO_ASSERT SOXR_LIB=1'
   defines += ' SAUTIFLOW_ENABLE_FFMPEG=1' if have_ffmpeg
 
-  header_search_paths = '$(inherited) "${PODS_TARGET_SRCROOT}/.." "${PODS_TARGET_SRCROOT}/../dsp" "${PODS_TARGET_SRCROOT}/../third_party" "${PODS_TARGET_SRCROOT}/../third_party/ffmpeg/include" "${PODS_TARGET_SRCROOT}/../third_party/faad2/include" "${PODS_TARGET_SRCROOT}/../third_party/faad2/libfaad" "${PODS_TARGET_SRCROOT}/../third_party/libsamplerate/include" "${PODS_TARGET_SRCROOT}/../third_party/libsoxr/include" "${PODS_TARGET_SRCROOT}/../third_party/libsoxr/src"'
+  header_search_paths = '$(inherited) "${PODS_TARGET_SRCROOT}/.." "${PODS_TARGET_SRCROOT}/../dsp" "${PODS_TARGET_SRCROOT}/../third_party" "${PODS_TARGET_SRCROOT}/../third_party/ffmpeg/include" "${PODS_TARGET_SRCROOT}/../third_party/faad2/include" "${PODS_TARGET_SRCROOT}/../third_party/faad2/libfaad" "${PODS_TARGET_SRCROOT}/../third_party/libsamplerate/include" "${PODS_TARGET_SRCROOT}/../third_party/libsoxr/include" "${PODS_TARGET_SRCROOT}/../third_party/libsoxr/src" "${PODS_TARGET_SRCROOT}/../third_party/r8brain"'
   # Prebuilt FFmpeg headers live double-nested under native/apple/include.
   if have_ffmpeg && File.directory?(File.join(repo_root, 'native', 'apple', 'include', 'include'))
     header_search_paths += ' "${PODS_TARGET_SRCROOT}/../native/apple/include/include"'

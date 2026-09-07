@@ -41,6 +41,7 @@ target_include_directories(audio_engine PRIVATE
   ../../../../third_party/libsamplerate/include
   ../../../../third_party/libsoxr/include
   ../../../../third_party/libsoxr/src
+  ../../../../third_party/r8brain
   ../../../../third_party/ffmpeg/include
 )
 

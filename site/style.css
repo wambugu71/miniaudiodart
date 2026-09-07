@@ -276,6 +276,37 @@ body {
   left: 0;
   color: var(--rule-strong);
 }
+.feat p {
+  font-size: 0.95rem;
+  color: var(--ink-dim);
+  line-height: 1.6;
+  margin-bottom: 10px;
+}
+.feat p:last-child {
+  margin-bottom: 0;
+}
+.feat p strong {
+  color: var(--ink);
+}
+.code-block {
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  padding: 12px 16px;
+  margin: 12px 0 6px;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--amber);
+  overflow-x: auto;
+  line-height: 1.5;
+}
+.code-block code {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+}
 .chip-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip-list li {
   padding: 5px 12px !important;
