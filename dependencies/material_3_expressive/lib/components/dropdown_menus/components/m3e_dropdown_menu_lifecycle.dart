@@ -72,13 +72,16 @@ extension _M3EDropdownMenuLifecycle<T> on _M3EDropdownMenuState<T> {
   }
 
   void _syncItemsFromWidget(M3EDropdownMenu<T> oldWidget) {
-    if (widget.items != oldWidget.items && widget.future == null) {
+    if (!listEquals(widget.items, oldWidget.items) && widget.future == null) {
       _controller.setItems(widget.items);
     }
   }
 
   void _syncControllerFromWidget(M3EDropdownMenu<T> oldWidget) {
     if (oldWidget.controller == widget.controller) {
+      _controller
+        ..onSelectionChange = widget.onSelectionChanged
+        ..onSearchChange = widget.onSearchChanged;
       return;
     }
 

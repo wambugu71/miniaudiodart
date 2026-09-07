@@ -151,7 +151,6 @@ class M3EDropdownController<T> extends ChangeNotifier {
     _searchQuery = '';
     _filteredItems = List.from(_items);
     notifyListeners();
-    onSelectionChange?.call(selectedItems);
   }
 
   /// Adds a single item. If [index] is provided, inserts at that position.
@@ -163,7 +162,6 @@ class M3EDropdownController<T> extends ChangeNotifier {
     }
     _reapplySearchFilter();
     notifyListeners();
-    onSelectionChange?.call(selectedItems);
   }
 
   /// Adds multiple items at the end of the list.
@@ -171,7 +169,6 @@ class M3EDropdownController<T> extends ChangeNotifier {
     _items.addAll(items);
     _reapplySearchFilter();
     notifyListeners();
-    onSelectionChange?.call(selectedItems);
   }
 
   // ── Selection ──

@@ -3853,53 +3853,59 @@ class _EqScreenState extends State<EqScreen>
           : item.copyWith(selected: isSelected);
     }).toList();
 
-    return M3EDropdownMenu<T>(
-      singleSelect: singleSelect,
-      searchEnabled: searchEnabled,
-      showChipAnimation: showChipAnimation,
-      items: mappedItems,
-      fieldStyle: M3EDropdownFieldStyle(
-        hintText: hintText,
-        backgroundColor: surfaceDarkerColor,
-        foregroundColor: Colors.white,
-        border: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
-        focusedBorder: BorderSide(color: effectiveAccent),
-        borderRadius: BorderRadius.circular(10),
-        padding: padding,
-        showArrow: true,
-        selectedTextStyle: const TextStyle(
-          color: Colors.white,
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
+    return RepaintBoundary(
+      child: M3EDropdownMenu<T>(
+        singleSelect: singleSelect,
+        searchEnabled: searchEnabled,
+        showChipAnimation: showChipAnimation,
+        items: mappedItems,
+        fieldStyle: M3EDropdownFieldStyle(
+          hintText: hintText,
+          backgroundColor: surfaceDarkerColor,
+          foregroundColor: Colors.white,
+          border: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+          focusedBorder: BorderSide(color: effectiveAccent),
+          borderRadius: BorderRadius.circular(10),
+          padding: padding,
+          showArrow: true,
+          selectedTextStyle: const TextStyle(
+            color: Colors.white,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
         ),
-      ),
-      dropdownStyle: M3EDropdownPanelStyle(
-        backgroundColor: surfaceDarkerColor,
-        containerRadius: 14,
-        maxHeight: maxHeight,
-      ),
-      searchStyle: const M3EDropdownSearchStyle(
-        hintText: 'Search...',
-        hintStyle: TextStyle(color: Colors.white38, fontSize: 13),
-        textStyle: TextStyle(color: Colors.white, fontSize: 13),
-      ),
-      itemStyle: M3EDropdownItemStyle(
-        textColor: Colors.white70,
-        selectedTextColor: effectiveAccent,
-        selectedTextStyle: TextStyle(
-          color: effectiveAccent,
-          fontSize: 13,
-          fontWeight: FontWeight.bold,
+        dropdownStyle: M3EDropdownPanelStyle(
+          backgroundColor: surfaceDarkerColor,
+          containerRadius: 14,
+          maxHeight: maxHeight,
         ),
-      ),
-      onSelectionChanged: (selected) {
-        if (selected.isNotEmpty) {
-          final chosen = selected.first.value;
-          if (chosen != value) {
-            onChanged(chosen);
+        searchStyle: const M3EDropdownSearchStyle(
+          hintText: 'Search...',
+          hintStyle: TextStyle(color: Colors.white38, fontSize: 13),
+          textStyle: TextStyle(color: Colors.white, fontSize: 13),
+        ),
+        itemStyle: M3EDropdownItemStyle(
+          textColor: Colors.white70,
+          selectedTextColor: effectiveAccent,
+          selectedTextStyle: TextStyle(
+            color: effectiveAccent,
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        onSelectionChanged: (selected) {
+          if (selected.isNotEmpty) {
+            final chosen = selected.first.value;
+            if (chosen != value) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) {
+                  onChanged(chosen);
+                }
+              });
+            }
           }
-        }
-      },
+        },
+      ),
     );
   }
 
