@@ -161,12 +161,8 @@ class _PhysicsDotsVisualizerState extends State<PhysicsDotsVisualizer>
         : 1.0;
 
     for (int i = 0; i < _numBands; i++) {
-      final sampleIdx =
-          (i * step).floor().clamp(0, inputLen - 1);
-      double val = widget.values[sampleIdx] * scaleFactor;
-      if (!widget.logScale) {
-        val = val * val;
-      }
+      final sampleIdx = (i * step).floor().clamp(0, inputLen - 1);
+      final double val = widget.values[sampleIdx] * scaleFactor;
       _bands[i].target = val.clamp(0.0, 1.0);
     }
   }
@@ -482,7 +478,15 @@ class _PhysicsDotsPainter extends CustomPainter {
         canvas.drawLine(Offset(x0, y), Offset(x0 + w, y), gridLinePaint);
       }
 
-      final label = logScale ? '${(level * 100).toInt()}%' : '${(level * 100).toInt()}%';
+      final label = logScale
+          ? (level == 1.0
+              ? '0dB'
+              : level == 0.75
+                  ? '-12'
+                  : level == 0.50
+                      ? '-24'
+                      : '-36')
+          : '${(level * 100).toInt()}%';
       final tp = TextPainter(
         text: TextSpan(text: label, style: labelStyle),
         textAlign: TextAlign.right,
@@ -496,38 +500,109 @@ class _PhysicsDotsPainter extends CustomPainter {
     canvas.drawLine(Offset(x0, y0), Offset(x0, y0 + h), axisBorderPaint);
     canvas.drawLine(Offset(x0, y0 + h), Offset(x0 + w, y0 + h), axisBorderPaint);
 
-    // Bottom Frequency Labels (20, 100, 500, 1k, 5k, 10k, 20k)
-    final freqTicks = [
-      {'f': 20.0, 'l': '20'},
-      {'f': 100.0, 'l': '100'},
-      {'f': 500.0, 'l': '500'},
-      {'f': 1000.0, 'l': '1k'},
-      {'f': 5000.0, 'l': '5k'},
-      {'f': 10000.0, 'l': '10k'},
-      {'f': 20000.0, 'l': '20k'},
-    ];
+    // Bottom Frequency Labels & Vertical Grids based on sample rate & scale mode
+    final double effectiveMaxFreq =
+        maxFreq > 0 ? maxFreq.toDouble() : 24000.0;
 
-    const double minFreq = 20.0;
-    final double effectiveMaxFreq = math.min(24000.0, maxFreq.toDouble());
+    String formatFreqLabel(double f) {
+      if (f >= 1000) {
+        if (f % 1000 == 0) {
+          return '${(f / 1000).toInt()}k';
+        } else if ((f * 10) % 1000 == 0) {
+          return '${(f / 1000).toStringAsFixed(1)}k';
+        } else {
+          return '${(f / 1000).toStringAsFixed(f >= 10000 ? 0 : 1)}k';
+        }
+      }
+      return '${f.toInt()}';
+    }
 
-    for (final tick in freqTicks) {
-      final f = tick['f'] as double;
-      if (f > effectiveMaxFreq) continue;
-      final label = tick['l'] as String;
+    final List<({double f, String label, double x})> computedTicks = [];
 
-      final logRatio = math.log(f / minFreq) / math.log(effectiveMaxFreq / minFreq);
-      final x = x0 + (logRatio * w).clamp(0.0, w);
+    if (logScale) {
+      // Logarithmic Frequency Axis (20 Hz to effectiveMaxFreq)
+      const double minFreq = 20.0;
+      final double safeMaxFreq = math.max(minFreq * 1.5, effectiveMaxFreq);
+      final logRange = math.log(safeMaxFreq / minFreq);
 
-      if (showGrids) {
-        canvas.drawLine(Offset(x, y0), Offset(x, y0 + h), gridLinePaint);
+      final candidates = <double>[
+        20.0,
+        50.0,
+        100.0,
+        250.0,
+        500.0,
+        1000.0,
+        2000.0,
+        5000.0,
+        10000.0,
+        20000.0,
+        40000.0,
+        80000.0,
+        safeMaxFreq,
+      ];
+
+      for (final f in candidates) {
+        if (f < minFreq || f > safeMaxFreq) continue;
+        final ratio = (math.log(f / minFreq) / logRange).clamp(0.0, 1.0);
+        final x = x0 + ratio * w;
+        computedTicks.add((f: f, label: formatFreqLabel(f), x: x));
+      }
+    } else {
+      // Linear Frequency Axis (0 Hz to effectiveMaxFreq)
+      double step;
+      if (effectiveMaxFreq <= 12000) {
+        step = 2000.0;
+      } else if (effectiveMaxFreq <= 25000) {
+        step = 4000.0;
+      } else if (effectiveMaxFreq <= 50000) {
+        step = 8000.0;
+      } else if (effectiveMaxFreq <= 100000) {
+        step = 16000.0;
+      } else {
+        step = 24000.0;
       }
 
-      final tp = TextPainter(
-        text: TextSpan(text: label, style: labelStyle),
-        textDirection: TextDirection.ltr,
-      )..layout();
+      for (double f = 0.0; f <= effectiveMaxFreq; f += step) {
+        final x = x0 + (f / effectiveMaxFreq) * w;
+        computedTicks.add((f: f, label: formatFreqLabel(f), x: x));
+      }
 
-      tp.paint(canvas, Offset(x - (tp.width / 2), y0 + h + 5));
+      // Add Nyquist edge tick if not already present near right border
+      if (computedTicks.isNotEmpty &&
+          (w - (computedTicks.last.x - x0)) > 26.0) {
+        computedTicks.add((
+          f: effectiveMaxFreq,
+          label: formatFreqLabel(effectiveMaxFreq),
+          x: x0 + w,
+        ));
+      }
+    }
+
+    // Render grid lines and non-overlapping labels
+    double lastLabelX = -999.0;
+    for (final tick in computedTicks) {
+      if (showGrids) {
+        canvas.drawLine(
+          Offset(tick.x, y0),
+          Offset(tick.x, y0 + h),
+          gridLinePaint,
+        );
+      }
+
+      // Ensure tick labels have at least 26px clearance to prevent overlap
+      if ((tick.x - lastLabelX).abs() >= 26.0 &&
+          tick.x >= x0 - 2 &&
+          tick.x <= x0 + w + 10) {
+        final tp = TextPainter(
+          text: TextSpan(text: tick.label, style: labelStyle),
+          textDirection: TextDirection.ltr,
+        )..layout();
+
+        final labelX =
+            (tick.x - (tp.width / 2)).clamp(x0, x0 + w - tp.width);
+        tp.paint(canvas, Offset(labelX, y0 + h + 5));
+        lastLabelX = tick.x;
+      }
     }
   }
 

@@ -327,6 +327,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       _isAnalyzerEnabled = widget.analyzerEnabled;
       _setupAnalyzer(_isAnalyzerEnabled);
     }
+    if (oldWidget.outputSampleRate != widget.outputSampleRate) {
+      final sr = widget.outputSampleRate > 0 ? widget.outputSampleRate : 48000;
+      _fftProcessor?.setSampleRate(sr);
+    }
     final currentIdx = widget.statusNotifier.value.currentIndex;
     final oldTitle = oldWidget.getTitle(currentIdx);
     final newTitle = widget.getTitle(currentIdx);

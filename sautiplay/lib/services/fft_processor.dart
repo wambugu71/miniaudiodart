@@ -8,7 +8,8 @@ import 'package:sautiflow/sautiflow.dart' show FftWindowType;
 /// across all audible frequencies (20 Hz to 20,000 Hz).
 class FftProcessor {
   final int fftSize;
-  final int sampleRate;
+  int sampleRate;
+  bool logScale;
   FftWindowType _windowType;
   FftWindowType get windowType => _windowType;
 
@@ -25,6 +26,7 @@ class FftProcessor {
   FftProcessor({
     this.fftSize = 512,
     this.sampleRate = 48000,
+    this.logScale = true,
     FftWindowType windowType = FftWindowType.hann,
   }) : _windowType = windowType {
     // Assert power of two
@@ -67,6 +69,22 @@ class FftProcessor {
     _computeWindowTable();
   }
 
+  /// Update active sample rate dynamically.
+  void setSampleRate(int rate) {
+    if (rate > 0 && rate != sampleRate) {
+      sampleRate = rate;
+      reset();
+    }
+  }
+
+  /// Update log/linear frequency and magnitude scaling dynamically.
+  void setLogScale(bool isLog) {
+    if (logScale != isLog) {
+      logScale = isLog;
+      reset();
+    }
+  }
+
   void _computeWindowTable() {
     final n = fftSize;
     _windowTable = Float32List(n);
@@ -96,7 +114,6 @@ class FftProcessor {
               0.006947368 * math.cos(4.0 * x);
           break;
         case FftWindowType.hann:
-        default:
           _windowTable[i] = 0.5 * (1.0 - math.cos(x));
           break;
       }
@@ -108,11 +125,17 @@ class FftProcessor {
     _smoothedBins?.fillRange(0, _smoothedBins!.length, 0.0);
   }
 
-  /// Process raw time-domain PCM samples into [targetBins] logarithmic frequency spectrum values.
+  /// Process raw time-domain PCM samples into [targetBins] frequency spectrum values.
   ///
-  /// Returns a list of values normalized between 0.0 and 1.0 representing
-  /// frequencies across the entire spectrum (20 Hz to 20,000 Hz).
-  List<double> processFrame(Float32List pcmSamples, {int targetBins = 96, double decayFactor = 0.82}) {
+  /// Supports both logarithmic frequency binning (matching human hearing with
+  /// pink noise tilt compensation and decibel scaling) and linear frequency binning
+  /// (even bandwidth across 0 Hz to Nyquist sampleRate / 2).
+  List<double> processFrame(
+    Float32List pcmSamples, {
+    int targetBins = 96,
+    double decayFactor = 0.82,
+    bool? logScale,
+  }) {
     if (pcmSamples.isEmpty) return List<double>.filled(targetBins, 0.0);
 
     if (_smoothedBins == null || _smoothedBins!.length != targetBins) {
@@ -167,58 +190,93 @@ class FftProcessor {
       _magnitudes[i] = math.sqrt(r * r + im * im) * normFactor;
     }
 
-    // 4. Logarithmic Frequency Binning across all frequencies (20 Hz - 20,000 Hz)
-    final double minFreq = 20.0;
-    final double maxFreq = math.min(20000.0, sampleRate / 2.0);
+    final bool isLog = logScale ?? this.logScale;
+    final double maxFreq = sampleRate / 2.0;
     final double hzPerBin = sampleRate / n;
-
     final output = List<double>.filled(targetBins, 0.0);
 
-    for (int i = 0; i < targetBins; i++) {
-      // Calculate start and end frequency for logarithmic bin i
-      final fLow = minFreq * math.pow(maxFreq / minFreq, i / targetBins);
-      final fHigh = minFreq * math.pow(maxFreq / minFreq, (i + 1) / targetBins);
+    if (isLog) {
+      // 4a. Logarithmic Frequency Binning across 20 Hz to Nyquist (sampleRate / 2)
+      const double minFreq = 20.0;
+      final double effectiveMaxFreq = math.max(minFreq * 1.5, maxFreq);
 
-      int binStart = (fLow / hzPerBin).floor().clamp(0, halfN - 1);
-      int binEnd = (fHigh / hzPerBin).ceil().clamp(0, halfN - 1);
-      if (binEnd <= binStart) binEnd = binStart + 1;
+      for (int i = 0; i < targetBins; i++) {
+        final fLow = minFreq * math.pow(effectiveMaxFreq / minFreq, i / targetBins);
+        final fHigh = minFreq * math.pow(effectiveMaxFreq / minFreq, (i + 1) / targetBins);
 
-      double maxMag = 0.0;
-      double sumMag = 0.0;
-      int count = 0;
+        int binStart = (fLow / hzPerBin).floor().clamp(0, halfN - 1);
+        int binEnd = (fHigh / hzPerBin).ceil().clamp(0, halfN);
+        if (binEnd <= binStart) binEnd = binStart + 1;
 
-      for (int k = binStart; k < binEnd && k < halfN; k++) {
-        final mag = _magnitudes[k];
-        if (mag > maxMag) maxMag = mag;
-        sumMag += mag;
-        count++;
+        double maxMag = 0.0;
+        double sumMag = 0.0;
+        int count = 0;
+
+        for (int k = binStart; k < binEnd && k < halfN; k++) {
+          final mag = _magnitudes[k];
+          if (mag > maxMag) maxMag = mag;
+          sumMag += mag;
+          count++;
+        }
+
+        // Pink Noise / Equal Loudness Compensation across octaves
+        final centerFreq = math.sqrt(fLow * fHigh);
+        final octavesAbove20 = (math.log(centerFreq / minFreq) / math.ln10).clamp(0.0, 3.8);
+        final freqBoost = 0.8 + 0.85 * octavesAbove20;
+
+        final avgMag = count > 0 ? sumMag / count : 0.0;
+        final combinedMag = (maxMag * 0.7) + (avgMag * 0.3);
+        final boostedMag = combinedMag * freqBoost;
+
+        // Logarithmic Decibel (dB) Normalization (-48 dB floor to 0 dB ceiling)
+        final double dB = 20.0 * (math.log(boostedMag + 1e-4) / math.ln10);
+        double scaledVal = ((dB + 48.0) / 48.0).clamp(0.0, 1.0);
+
+        if (scaledVal >= smoothed[i]) {
+          smoothed[i] = scaledVal;
+        } else {
+          smoothed[i] = math.max(0.0, smoothed[i] * decayFactor);
+        }
+
+        output[i] = smoothed[i];
       }
+    } else {
+      // 4b. Linear Frequency Binning across 0 Hz to Nyquist (sampleRate / 2)
+      final double binWidthHz = maxFreq / targetBins;
 
-      // 5. Frequency-dependent tilt & boost (Pink Noise / Equal Loudness Compensation)
-      // Music naturally loses amplitude at higher frequencies (~-6dB/octave).
-      // We apply an equalizer tilt curve so high frequencies (hi-hats, cymbals, vocal air)
-      // are elevated to display vibrantly alongside bass and mid-range frequencies.
-      final centerFreq = math.sqrt(fLow * fHigh);
-      final freqBoost = 0.8 + 0.85 * (math.log(centerFreq / 20.0) / math.ln10);
+      for (int i = 0; i < targetBins; i++) {
+        final fLow = i * binWidthHz;
+        final fHigh = (i + 1) * binWidthHz;
 
-      final avgMag = count > 0 ? sumMag / count : 0.0;
-      final combinedMag = (maxMag * 0.7) + (avgMag * 0.3);
-      final boostedMag = combinedMag * freqBoost;
+        int binStart = (fLow / hzPerBin).floor().clamp(0, halfN - 1);
+        int binEnd = (fHigh / hzPerBin).ceil().clamp(0, halfN);
+        if (binEnd <= binStart) binEnd = binStart + 1;
 
-      // 6. Logarithmic Decibel (dB) Normalization (-45 dB floor to 0 dB ceiling)
-      final double dB = 20.0 * (math.log(boostedMag + 1e-4) / math.ln10);
-      double scaledVal = ((dB + 45.0) / 45.0).clamp(0.0, 1.0);
+        double maxMag = 0.0;
+        double sumMag = 0.0;
+        int count = 0;
 
-      // 7. Exponential attack and smooth decay
-      if (scaledVal >= smoothed[i]) {
-        // Fast attack
-        smoothed[i] = scaledVal;
-      } else {
-        // Smooth decay
-        smoothed[i] = math.max(0.0, smoothed[i] * decayFactor);
+        for (int k = binStart; k < binEnd && k < halfN; k++) {
+          final mag = _magnitudes[k];
+          if (mag > maxMag) maxMag = mag;
+          sumMag += mag;
+          count++;
+        }
+
+        final avgMag = count > 0 ? sumMag / count : 0.0;
+        final combinedMag = (maxMag * 0.75) + (avgMag * 0.25);
+
+        // Linear magnitude response scaled for punchy studio RTA visualization
+        double scaledVal = (combinedMag * 5.0).clamp(0.0, 1.0);
+
+        if (scaledVal >= smoothed[i]) {
+          smoothed[i] = scaledVal;
+        } else {
+          smoothed[i] = math.max(0.0, smoothed[i] * decayFactor);
+        }
+
+        output[i] = smoothed[i];
       }
-
-      output[i] = smoothed[i];
     }
 
     return output;

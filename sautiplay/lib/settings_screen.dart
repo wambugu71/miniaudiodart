@@ -2503,16 +2503,68 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     },
                   ),
                   const M3EDivider(),
-                  _buildM3ESwitchTile(
-                    title: 'Logarithmic Decibel Scale',
-                    subtitle:
-                        'Logarithmic response curve matching human hearing',
-                    secondary: _buildLeadingIcon(Icons.tune_rounded),
-                    value: widget.analyzerLogScale,
-                    onChanged: (v) {
-                      widget.onAnalyzerLogScaleChanged(v);
-                      setSubState(() {});
-                    },
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20.0, vertical: 14.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            _buildLeadingIcon(Icons.tune_rounded),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Visualizer Scale Mode',
+                                    style: TextStyle(
+                                      color: _textPrimary,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    widget.analyzerLogScale
+                                        ? 'Logarithmic: Musical octaves & decibel perception'
+                                        : 'Linear: Even frequency bandwidths & linear magnitude',
+                                    style: TextStyle(
+                                        color: _textDark, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: M3ESegmentedButton<bool>(
+                            segments: const [
+                              M3ESegment(
+                                value: true,
+                                label: 'Logarithmic',
+                                icon: Icon(Icons.tune_rounded, size: 16),
+                              ),
+                              M3ESegment(
+                                value: false,
+                                label: 'Linear',
+                                icon: Icon(Icons.linear_scale_rounded, size: 16),
+                              ),
+                            ],
+                            selected: {widget.analyzerLogScale},
+                            onSelectionChanged: (val) {
+                              if (val.isNotEmpty) {
+                                widget.onAnalyzerLogScaleChanged(val.first);
+                                setSubState(() {});
+                              }
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
