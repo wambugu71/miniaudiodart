@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:sautiflow/sautiflow.dart';
@@ -9,7 +8,9 @@ import 'eq_screen.dart';
 import 'isolate_player.dart';
 import 'services/app_theme_service.dart';
 import 'services/fft_processor.dart';
+import 'widgets/fluid_area_visualizer.dart';
 import 'widgets/glsl_audio_visualizer.dart';
+import 'widgets/physics_dots_visualizer.dart';
 import 'widgets/profile_selector.dart';
 
 class EffectsScreen extends StatefulWidget {
@@ -27,12 +28,12 @@ class EffectsScreen extends StatefulWidget {
     super.key,
     required this.player,
     required this.analyzerEnabled,
-    required this.analyzerType,
+    this.analyzerType = 'bar',
     required this.analyzerAutoFit,
     required this.analyzerShowGrids,
     this.analyzerLogScale = true,
     required this.outputSampleRate,
-    this.spectrumStyle = 'neon',
+    this.spectrumStyle = 'minimal',
     this.effectsKnobKey,
   });
 
@@ -48,11 +49,13 @@ class _EffectsScreenState extends State<EffectsScreen> {
   bool _isPlaying = false;
   FftProcessor? _fftProcessor;
   late String _currentAnalyzerType;
+  late String _currentSpectrumStyle;
 
   @override
   void initState() {
     super.initState();
     _currentAnalyzerType = widget.analyzerType;
+    _currentSpectrumStyle = widget.spectrumStyle;
     _isPlaying = widget.player.isPlaying;
     _setupAnalyzer(widget.analyzerEnabled);
     _statusSub = widget.player.statusStream.listen((status) {
@@ -69,6 +72,9 @@ class _EffectsScreenState extends State<EffectsScreen> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.analyzerType != widget.analyzerType) {
       _currentAnalyzerType = widget.analyzerType;
+    }
+    if (oldWidget.spectrumStyle != widget.spectrumStyle) {
+      _currentSpectrumStyle = widget.spectrumStyle;
     }
     if (oldWidget.analyzerEnabled != widget.analyzerEnabled) {
       _setupAnalyzer(widget.analyzerEnabled);
@@ -125,121 +131,9 @@ class _EffectsScreenState extends State<EffectsScreen> {
 
   Widget _buildVisualizer(Color primaryColor,
       List<double> currentAnalyzerValues, List<double> peakValues) {
-    const int numBars = 60;
-    final visualData = <double>[];
-    final visualPeaks = <double>[];
-    if (currentAnalyzerValues.isEmpty) {
-      for (int i = 0; i < numBars; i++) {
-        visualData.add(0.0);
-        visualPeaks.add(0.0);
-      }
-    } else {
-      final step = math.max(1, currentAnalyzerValues.length / numBars);
-      for (int i = 0; i < numBars; i++) {
-        final index =
-            (i * step).floor().clamp(0, currentAnalyzerValues.length - 1);
-        double val = currentAnalyzerValues[index];
-        double peak = peakValues[index];
-        if (!widget.analyzerLogScale) {
-          val = val * val;
-          peak = peak * peak;
-        }
-        visualData.add(val.clamp(0.0, 1.0));
-        visualPeaks.add(peak.clamp(0.0, 1.0));
-      }
-    }
-
-    final flGridData = FlGridData(
-      show: widget.analyzerShowGrids,
-      drawVerticalLine: true,
-      horizontalInterval: 0.25,
-      getDrawingHorizontalLine: (value) =>
-          FlLine(color: Colors.white10, strokeWidth: 1),
-      getDrawingVerticalLine: (value) =>
-          FlLine(color: Colors.white10, strokeWidth: 1),
-    );
-
     int maxFreq =
         widget.outputSampleRate == 0 ? 24000 : widget.outputSampleRate ~/ 2;
     if (maxFreq > 24000) maxFreq = 24000;
-
-    double dynamicMaxY = 1.0;
-    if (widget.analyzerAutoFit) {
-      double maxPeak = 0.0;
-      for (var p in visualPeaks) {
-        if (p > maxPeak) maxPeak = p;
-      }
-      dynamicMaxY = math.max(0.1, maxPeak * 1.2); // Add headroom
-      if (dynamicMaxY > 1.0 && !widget.analyzerLogScale) dynamicMaxY = 1.0;
-    }
-
-    final flTitlesData = FlTitlesData(
-      show: true,
-      topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-      rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-      leftTitles: AxisTitles(
-        sideTitles: SideTitles(
-          showTitles: true,
-          reservedSize: 28,
-          getTitlesWidget: (value, meta) {
-            if (value == 0 || value >= dynamicMaxY) {
-              return const SizedBox.shrink();
-            }
-            return Text(
-              widget.analyzerLogScale
-                  ? '${(value * 100).toInt()} dB'
-                  : '${(value * 100).toInt()}%',
-              style: const TextStyle(color: Colors.white54, fontSize: 9),
-              textAlign: TextAlign.right,
-            );
-          },
-        ),
-      ),
-      bottomTitles: AxisTitles(
-        sideTitles: SideTitles(
-          showTitles: true,
-          reservedSize: 20,
-          getTitlesWidget: (value, meta) {
-            final int idx = value.toInt();
-            // Display 6 evenly spaced logarithmic frequency ticks across 20Hz - 20kHz
-            if (idx == 0 ||
-                idx == 10 ||
-                idx == 22 ||
-                idx == 34 ||
-                idx == 46 ||
-                idx == (numBars - 1)) {
-              double freq =
-                  20.0 * math.pow(maxFreq / 20.0, idx / (numBars - 1));
-              String label;
-              if (freq >= 1000) {
-                final k = freq / 1000;
-                label = k >= 10 ? '${k.round()}k' : '${k.toStringAsFixed(1)}k';
-              } else {
-                label = '${freq.round()}';
-              }
-              return Padding(
-                padding: const EdgeInsets.only(top: 6.0),
-                child: Text(
-                  label,
-                  style: const TextStyle(color: Colors.white54, fontSize: 9),
-                ),
-              );
-            }
-            return const SizedBox.shrink();
-          },
-        ),
-      ),
-    );
-
-    final flBorderData = FlBorderData(
-      show: true,
-      border: const Border(
-        bottom: BorderSide(color: Colors.white24, width: 1),
-        left: BorderSide(color: Colors.white24, width: 1),
-        right: BorderSide.none,
-        top: BorderSide.none,
-      ),
-    );
 
     for (final style in GlslShaderStyle.values) {
       if (_currentAnalyzerType == style.name ||
@@ -255,75 +149,36 @@ class _EffectsScreenState extends State<EffectsScreen> {
     }
 
     if (_currentAnalyzerType == 'area') {
-      final spots = <FlSpot>[];
-      for (int i = 0; i < numBars; i++) {
-        spots.add(FlSpot(i.toDouble(), visualData[i]));
-      }
-      return LineChart(
-        LineChartData(
-          lineTouchData: const LineTouchData(enabled: false),
-          gridData: flGridData,
-          titlesData: flTitlesData,
-          borderData: flBorderData,
-          minX: 0,
-          maxX: numBars.toDouble() - 1,
-          minY: 0,
-          maxY: dynamicMaxY,
-          lineBarsData: [
-            LineChartBarData(
-              spots: spots,
-              isCurved: true,
-              curveSmoothness: 0.35,
-              color: primaryColor,
-              barWidth: 2,
-              isStrokeCapRound: true,
-              dotData: const FlDotData(show: false),
-              belowBarData: BarAreaData(
-                show: true,
-                gradient: LinearGradient(
-                  colors: [
-                    primaryColor.withValues(alpha: 0.5),
-                    primaryColor.withValues(alpha: 0.0),
-                  ],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                ),
-              ),
-            ),
-          ],
-        ),
+      return FluidAreaVisualizer(
+        values: currentAnalyzerValues,
+        primaryColor: primaryColor,
+        height: 160.0,
+        themeName: _currentSpectrumStyle,
+        showGrids: widget.analyzerShowGrids,
+        logScale: widget.analyzerLogScale,
+        autoFit: widget.analyzerAutoFit,
+        maxFreq: maxFreq,
+        onThemeChanged: (newTheme) {
+          setState(() {
+            _currentSpectrumStyle = newTheme;
+          });
+        },
       );
     } else {
-      final barGroups = List.generate(numBars, (i) {
-        return BarChartGroupData(
-          x: i,
-          barRods: [
-            BarChartRodData(
-              toY: math.max(0.02, visualPeaks[i]),
-              color: Colors.transparent,
-              width: 4,
-              rodStackItems: [
-                BarChartRodStackItem(0, math.max(0.02, visualData[i]),
-                    primaryColor.withValues(alpha: 0.8)),
-                BarChartRodStackItem(math.max(0.0, visualPeaks[i] - 0.02),
-                    visualPeaks[i], Colors.white),
-              ],
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ],
-        );
-      });
-      return BarChart(
-        BarChartData(
-          barTouchData: BarTouchData(enabled: false),
-          alignment: BarChartAlignment.spaceBetween,
-          maxY: dynamicMaxY,
-          minY: 0,
-          barGroups: barGroups,
-          titlesData: flTitlesData,
-          borderData: flBorderData,
-          gridData: flGridData,
-        ),
+      return PhysicsDotsVisualizer(
+        values: currentAnalyzerValues,
+        primaryColor: primaryColor,
+        height: 160.0,
+        themeName: _currentSpectrumStyle,
+        showGrids: widget.analyzerShowGrids,
+        logScale: widget.analyzerLogScale,
+        autoFit: widget.analyzerAutoFit,
+        maxFreq: maxFreq,
+        onThemeChanged: (newTheme) {
+          setState(() {
+            _currentSpectrumStyle = newTheme;
+          });
+        },
       );
     }
   }
@@ -359,19 +214,19 @@ class _EffectsScreenState extends State<EffectsScreen> {
         dragHandleHeight;
 
     // Helper to get active visualizer display label
-    String activeVisualizerLabel = 'Bar Spectrum';
+    String activeVisualizerLabel =
+        'Dot Matrix (${PhysicsDotsTheme.fromString(_currentSpectrumStyle).displayName})';
     if (_currentAnalyzerType == 'area') {
-      activeVisualizerLabel = 'Area Line';
-    } else {
+      activeVisualizerLabel =
+          'Fluid Wave (${FluidAreaTheme.fromString(_currentSpectrumStyle).displayName})';
+    } else if (_currentAnalyzerType != 'bar') {
       final glslMatch = GlslShaderStyle.values.firstWhere(
         (s) =>
             s.name == _currentAnalyzerType ||
             s.displayName == _currentAnalyzerType,
         orElse: () => GlslShaderStyle.cyberTunnel,
       );
-      if (_currentAnalyzerType != 'bar') {
-        activeVisualizerLabel = glslMatch.displayName;
-      }
+      activeVisualizerLabel = glslMatch.displayName;
     }
 
     return Scaffold(
@@ -504,35 +359,80 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                       ),
                                     ),
                                     children: [
-                                      M3EMenuGroup.entries(
-                                        label: 'Standard Visualizers',
-                                        entries: [
-                                          M3EMenuEntry(
-                                            label: 'Bar Spectrum',
-                                            leading: const Icon(
-                                                Icons.bar_chart_rounded,
-                                                size: 18),
-                                            onPressed: () {
-                                              setState(() {
-                                                _currentAnalyzerType = 'bar';
-                                              });
-                                            },
-                                          ),
-                                          M3EMenuEntry(
-                                            label: 'Area Line',
-                                            leading: const Icon(
-                                                Icons.show_chart_rounded,
-                                                size: 18),
-                                            onPressed: () {
-                                              setState(() {
-                                                _currentAnalyzerType = 'area';
-                                              });
-                                            },
-                                          ),
-                                        ],
-                                      ),
-                                      M3EMenuGroup.entries(
-                                        label: 'GLSL Shaders',
+                                       M3EMenuGroup.entries(
+                                         label: 'Standard Visualizers',
+                                         entries: [
+                                           M3EMenuEntry(
+                                             label: 'Fluid Wave Area',
+                                             leading: const Icon(
+                                                 Icons.show_chart_rounded,
+                                                 size: 18),
+                                             onPressed: () {
+                                               setState(() {
+                                                 _currentAnalyzerType = 'area';
+                                               });
+                                             },
+                                           ),
+                                           M3EMenuEntry(
+                                             label: 'Dot Matrix Spectrum',
+                                             leading: const Icon(
+                                                 Icons.grain_rounded,
+                                                 size: 18),
+                                             onPressed: () {
+                                               setState(() {
+                                                 _currentAnalyzerType = 'bar';
+                                               });
+                                             },
+                                           ),
+                                         ],
+                                       ),
+                                       M3EMenuGroup.entries(
+                                         label: _currentAnalyzerType == 'area'
+                                             ? 'Fluid Wave Themes'
+                                             : 'Dot Matrix Themes',
+                                         entries: (_currentAnalyzerType == 'area'
+                                                 ? FluidAreaTheme.values.map(
+                                                     (theme) => M3EMenuEntry(
+                                                       label: theme.displayName,
+                                                       leading: Icon(
+                                                         theme.icon,
+                                                         size: 18,
+                                                         color: _currentSpectrumStyle ==
+                                                                 theme.name
+                                                             ? primaryColor
+                                                             : null,
+                                                       ),
+                                                       onPressed: () {
+                                                         setState(() {
+                                                           _currentSpectrumStyle =
+                                                               theme.name;
+                                                         });
+                                                       },
+                                                     ),
+                                                   )
+                                                 : PhysicsDotsTheme.values.map(
+                                                     (theme) => M3EMenuEntry(
+                                                       label: theme.displayName,
+                                                       leading: Icon(
+                                                         theme.icon,
+                                                         size: 18,
+                                                         color: _currentSpectrumStyle ==
+                                                                 theme.name
+                                                             ? primaryColor
+                                                             : null,
+                                                       ),
+                                                       onPressed: () {
+                                                         setState(() {
+                                                           _currentSpectrumStyle =
+                                                               theme.name;
+                                                         });
+                                                       },
+                                                     ),
+                                                   ))
+                                             .toList(),
+                                       ),
+                                       M3EMenuGroup.entries(
+                                         label: 'GLSL Shaders',
                                         entries: GlslShaderStyle.values
                                             .map(
                                               (s) => M3EMenuEntry(

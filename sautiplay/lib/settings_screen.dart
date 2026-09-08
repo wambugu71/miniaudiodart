@@ -2614,7 +2614,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ['neon', 'fire', 'minimal', 'pill']
                                       .contains(activeStyleName)
                                   ? activeStyleName
-                                  : 'neon'
+                                  : 'minimal'
                             },
                             onSelectionChanged: (val) {
                               if (val.isNotEmpty) {
@@ -4495,7 +4495,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   value: val,
                   groupValue: _dspOversampling,
                   onChanged: (v) {
-                    if (v == null) return;
                     setDlgState(() {});
                     setState(() => _dspOversampling = v);
                     AppStateService.instance.saveDspOversampling(v);
@@ -5276,14 +5275,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   value: bk,
                   groupValue: _selectedBackend,
                   onChanged: (v) {
-                    if (v != null) {
-                      widget.player.setOutputBackend(v);
-                      setState(() {
-                        _selectedBackend = v;
-                      });
-                      setSubState(() {});
-                      Navigator.pop(ctx);
-                    }
+                    widget.player.setOutputBackend(v);
+                    setState(() {
+                      _selectedBackend = v;
+                    });
+                    setSubState(() {});
+                    Navigator.pop(ctx);
                   },
                 ),
               );

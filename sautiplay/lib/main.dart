@@ -230,13 +230,13 @@ class _PlayerShellState extends State<PlayerShell> {
   bool _exclusiveMode = false;
 
   bool _analyzerEnabled = true;
-  String _analyzerType = 'area';
+  String _analyzerType = 'bar';
   int _analyzerSampleSize = 1024;
   String _analyzerWindowType = 'hann';
   bool _analyzerAutoFit = true;
   bool _analyzerShowGrids = true;
   bool _analyzerLogScale = true;
-  String _spectrumStyle = 'neon';
+  String _spectrumStyle = 'minimal';
 
   int _lastPlaybackTrackIndex = -1;
   double _lastPlaybackMaxPosition = 0.0;

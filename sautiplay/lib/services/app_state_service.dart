@@ -820,7 +820,7 @@ class AppStateService {
       crossfadeMs: prefs.getInt(_kCrossfadeMs) ?? 250,
       loudnessCrossfadeEnabled: prefs.getBool(_kLoudnessCrossfadeEnabled) ?? true,
       analyzerEnabled: prefs.getBool(_kAnalyzerEnabled) ?? true,
-      analyzerType: prefs.getString(_kAnalyzerType) ?? 'area',
+      analyzerType: prefs.getString(_kAnalyzerType) ?? 'bar',
       analyzerSampleSize: prefs.getInt(_kAnalyzerSampleSize) ?? 1024,
       analyzerWindowType: prefs.getString(_kAnalyzerWindowType) ?? 'hann',
       allowInvalidTls: prefs.getBool(_kAllowInvalidTls) ?? false,
@@ -828,7 +828,7 @@ class AppStateService {
       analyzerAutoFit: prefs.getBool(_kAnalyzerAutoFit) ?? true,
       analyzerShowGrids: prefs.getBool(_kAnalyzerShowGrids) ?? true,
       analyzerLogScale: prefs.getBool(_kAnalyzerLogScale) ?? true,
-      spectrumStyle: prefs.getString(_kSpectrumStyle) ?? 'neon',
+      spectrumStyle: prefs.getString(_kSpectrumStyle) ?? 'minimal',
     );
   }
 
