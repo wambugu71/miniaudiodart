@@ -71,6 +71,11 @@ struct StreamTelemetry {
 
 using StreamTelemetryCallback = std::function<void(const StreamTelemetry&)>;
 
+struct FFmpegDecoderInitConfig {
+    int targetSampleRate{48000};
+    int targetChannels{2};
+};
+
 class FFmpegStreamSource {
 public:
     FFmpegStreamSource();

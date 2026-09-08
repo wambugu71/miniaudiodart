@@ -873,7 +873,7 @@ class AppStateService {
       gaplessPlayback: prefs.getBool(_kGaplessPlayback) ?? true,
       normalizeVolume: prefs.getBool(_kNormalizeVolume) ?? false,
       streamOverWifi: prefs.getBool(_kStreamOverWifi) ?? true,
-      resampleAlgorithm: prefs.getInt(_kResampleAlgorithm) ?? 0,
+      resampleAlgorithm: prefs.getInt(_kResampleAlgorithm) ?? 8,
       ditherMode: prefs.getInt(_kDitherMode) ?? 0,
     );
   }

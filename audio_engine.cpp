@@ -664,9 +664,9 @@ namespace
 
         SRC_DATA srcData;
         srcData.data_in = (const float *)pFramesIn;
-        srcData.input_frames = (long)std::min<ma_uint64>(*pFrameCountIn, 0x7FFFFFFF);
+        srcData.input_frames = pFramesIn ? (long)std::min<ma_uint64>(*pFrameCountIn, 0x7FFFFFFF) : 0;
         srcData.data_out = (float *)pFramesOut;
-        srcData.output_frames = (long)std::min<ma_uint64>(*pFrameCountOut, 0x7FFFFFFF);
+        srcData.output_frames = pFramesOut ? (long)std::min<ma_uint64>(*pFrameCountOut, 0x7FFFFFFF) : 0;
         srcData.src_ratio = backend->ratio;
         srcData.end_of_input = 0;
 
@@ -898,14 +898,41 @@ namespace
     static ma_result soxr_onSetRate(void *pUserData, ma_resampling_backend *pBackend, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut)
     {
         SoxrResamplerBackend *backend = (SoxrResamplerBackend *)pBackend;
-        if (!backend)
+        if (!backend || sampleRateIn == 0 || sampleRateOut == 0)
             return MA_ERROR;
-        backend->ratio = (sampleRateIn > 0) ? ((double)sampleRateOut / (double)sampleRateIn) : 1.0;
+        backend->ratio = (double)sampleRateOut / (double)sampleRateIn;
         engine_log("soxr_onSetRate: sampleRateIn=%u sampleRateOut=%u -> new ratio=%.4f", sampleRateIn, sampleRateOut, backend->ratio);
+
         if (backend->handle)
         {
-            soxr_error_t err = soxr_set_io_ratio(backend->handle, 1.0 / backend->ratio, 0);
-            if (err) return MA_ERROR;
+            soxr_delete(backend->handle);
+            backend->handle = nullptr;
+        }
+
+        unsigned long q_recipe = SOXR_HQ;
+        unsigned long q_flags = 0;
+        if (backend->algorithm == 7) {
+            q_recipe = SOXR_VHQ;
+            q_flags = SOXR_LINEAR_PHASE;
+        } else if (backend->algorithm == 8) {
+            q_recipe = SOXR_VHQ;
+            q_flags = SOXR_MINIMUM_PHASE;
+        } else if (backend->algorithm == 9) {
+            q_recipe = SOXR_HQ;
+            q_flags = SOXR_LINEAR_PHASE;
+        } else if (backend->algorithm == 10) {
+            q_recipe = SOXR_LQ;
+            q_flags = SOXR_LINEAR_PHASE;
+        }
+
+        soxr_quality_spec_t q_spec = soxr_quality_spec(q_recipe, q_flags);
+        soxr_io_spec_t io_spec = soxr_io_spec(SOXR_FLOAT32_I, SOXR_FLOAT32_I);
+        soxr_error_t err = nullptr;
+        backend->handle = soxr_create((double)sampleRateIn, (double)sampleRateOut, (unsigned)backend->channels, &err, &io_spec, &q_spec, NULL);
+        if (!backend->handle || err)
+        {
+            engine_log("soxr_onSetRate: soxr_create failed (%s)", soxr_strerror(err));
+            return MA_ERROR;
         }
         return MA_SUCCESS;
     }
@@ -913,19 +940,19 @@ namespace
     static ma_uint64 soxr_onGetInputLatency(void *pUserData, const ma_resampling_backend *pBackend)
     {
         const SoxrResamplerBackend *backend = (const SoxrResamplerBackend *)pBackend;
-        if (!backend || !backend->handle)
+        if (!backend || !backend->handle || backend->ratio <= 0.0)
             return 0;
-        double delay = soxr_delay(backend->handle);
-        return (ma_uint64)std::ceil(delay);
+        double delayOut = soxr_delay(backend->handle);
+        return (ma_uint64)std::ceil(delayOut / backend->ratio);
     }
 
     static ma_uint64 soxr_onGetOutputLatency(void *pUserData, const ma_resampling_backend *pBackend)
     {
         const SoxrResamplerBackend *backend = (const SoxrResamplerBackend *)pBackend;
-        if (!backend || !backend->handle || backend->ratio <= 0.0)
+        if (!backend || !backend->handle)
             return 0;
-        double delay = soxr_delay(backend->handle);
-        return (ma_uint64)std::ceil(delay * backend->ratio);
+        double delayOut = soxr_delay(backend->handle);
+        return (ma_uint64)std::ceil(delayOut);
     }
 
     static ma_result soxr_onGetRequiredInputFrameCount(void *pUserData, const ma_resampling_backend *pBackend, ma_uint64 outputFrameCount, ma_uint64 *pInputFrameCount)
@@ -3175,6 +3202,7 @@ struct AudioEngineHandle
     int deviceResamplerInRate = 0;
     int deviceResamplerOutRate = 0;
     int deviceResamplerCh = 0;
+    int deviceResamplerAlgorithm = -1;
     std::vector<float> engineProcessBuffer;
 
     int channels = 2;
@@ -3811,7 +3839,11 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
         std::lock_guard<std::mutex> rLock(e->deviceResamplerMutex);
         if (plan.deviceSRC)
         {
-            if (!e->deviceResamplerInit || e->deviceResamplerInRate != (int)plan.engineRate || e->deviceResamplerOutRate != (int)plan.deviceRate || e->deviceResamplerCh != ch)
+            if (!e->deviceResamplerInit ||
+                e->deviceResamplerInRate != (int)plan.engineRate ||
+                e->deviceResamplerOutRate != (int)plan.deviceRate ||
+                e->deviceResamplerCh != ch ||
+                e->deviceResamplerAlgorithm != e->resampleAlgorithm)
             {
                 if (e->deviceResamplerInit)
                 {
@@ -3837,6 +3869,7 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
                     e->deviceResamplerInRate = (int)plan.engineRate;
                     e->deviceResamplerOutRate = (int)plan.deviceRate;
                     e->deviceResamplerCh = ch;
+                    e->deviceResamplerAlgorithm = e->resampleAlgorithm;
                 }
             }
         }
@@ -3849,6 +3882,7 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
                 e->deviceResamplerInRate = 0;
                 e->deviceResamplerOutRate = 0;
                 e->deviceResamplerCh = 0;
+                e->deviceResamplerAlgorithm = -1;
             }
         }
     }
@@ -4055,25 +4089,48 @@ static bool load_decoder_for_path(
         return false;
     }
 
+    const bool isNetwork = is_network_url(path);
     ma_uint32 outCh = (e->channels > 0) ? (ma_uint32)e->channels : 2;
     ma_uint32 targetRate = (e->engineSampleRate > 0)
                            ? (ma_uint32)e->engineSampleRate
                            : ((e->sampleRate > 0) ? (ma_uint32)e->sampleRate : 48000);
     ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, outCh, targetRate);
-    if (e->resampleAlgorithm > 0)
+
+    // Online streams: Resampling defaults to FFmpeg's built-in SwrContext resampler (not SoXR / r8brain / libsamplerate).
+    // Local files: Use the user-selected high-precision resampler backend (SoXR / r8brain / libsamplerate).
+    if (!isNetwork && e->resampleAlgorithm > 0)
     {
         cfg.resampling.algorithm = ma_resample_algorithm_custom;
         cfg.resampling.pBackendVTable = get_resampler_vtable_for_algorithm(e->resampleAlgorithm);
         cfg.resampling.pBackendUserData = &e->resampleAlgorithm;
     }
+    else
+    {
+        cfg.resampling.algorithm = ma_resample_algorithm_linear;
+    }
+
 #if defined(SAUTIFLOW_ENABLE_FFMPEG) && SAUTIFLOW_ENABLE_FFMPEG
-    static ma_decoding_backend_vtable *pCustomDecoders[] = {
+    static ma_decoding_backend_vtable *pNetworkDecoders[] = {
+        &g_ma_decoding_backend_vtable_ffmpeg,
+        &g_ma_decoding_backend_vtable_mp4_aac
+    };
+    static ma_decoding_backend_vtable *pLocalDecoders[] = {
         &g_ma_decoding_backend_vtable_mp4_aac,
         &g_ma_decoding_backend_vtable_ffmpeg
     };
-    cfg.pCustomBackendUserData = nullptr;
-    cfg.ppCustomBackendVTables = pCustomDecoders;
-    cfg.customBackendCount = 2;
+
+    sautiflow::FFmpegDecoderInitConfig ffmpegInitCfg{ (int)targetRate, (int)outCh };
+    cfg.pCustomBackendUserData = &ffmpegInitCfg;
+    if (isNetwork)
+    {
+        cfg.ppCustomBackendVTables = pNetworkDecoders;
+        cfg.customBackendCount = 2;
+    }
+    else
+    {
+        cfg.ppCustomBackendVTables = pLocalDecoders;
+        cfg.customBackendCount = 2;
+    }
 #else
     static ma_decoding_backend_vtable *pCustomDecoders[] = {
         &g_ma_decoding_backend_vtable_mp4_aac
@@ -11868,9 +11925,21 @@ extern "C"
             info.input_sample_rate  = engine->sourceSampleRate > 0 ? engine->sourceSampleRate : engine->engineSampleRate;
             info.engine_sample_rate = engine->engineSampleRate;
             info.device_sample_rate = engine->deviceSampleRate;
-            info.is_bypassed = (info.engine_sample_rate == info.device_sample_rate) ? 1 : 0;
-            info.mode = info.is_bypassed ? 0 : (engine->autoSampleRateMatchEnabled ? 1 : 3);
-            info.resampler_latency_ms = engine->deviceResamplerInit ? (double)ma_resampler_get_input_latency(&engine->deviceResampler) / (double)engine->deviceSampleRate * 1000.0 : 0.0;
+            const bool decoderSrcActive = (info.input_sample_rate != info.engine_sample_rate);
+            const bool deviceSrcActive = engine->deviceResamplerInit && (info.engine_sample_rate != info.device_sample_rate);
+            info.is_bypassed = (!decoderSrcActive && !deviceSrcActive) ? 1 : 0;
+            info.mode = info.is_bypassed ? 0 : (engine->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) ? 1 : 3);
+
+            double latencyMs = 0.0;
+            if (deviceSrcActive && engine->deviceSampleRate > 0)
+            {
+                latencyMs += (double)ma_resampler_get_input_latency(&engine->deviceResampler) / (double)engine->deviceSampleRate * 1000.0;
+            }
+            if (decoderSrcActive && engine->currentDecoder != nullptr && engine->engineSampleRate > 0)
+            {
+                latencyMs += (double)ma_data_converter_get_input_latency(&engine->currentDecoder->converter) / (double)engine->engineSampleRate * 1000.0;
+            }
+            info.resampler_latency_ms = latencyMs;
             info.filter_passband_ratio = 0.45 * (double)info.device_sample_rate;
             info.is_linear_phase = (engine->resampleAlgorithm == AE_RESAMPLE_ALGORITHM_SOXR_VHQ_LINEAR_PHASE || engine->resampleAlgorithm == AE_RESAMPLE_ALGORITHM_R8BRAIN_24_LINEAR_PHASE) ? 1 : 0;
         }

@@ -842,6 +842,11 @@ static ma_result ma_decoding_backend_init_file__ffmpeg(void* pUserData, const ch
 
     ma_uint32 outChannels = 2;
     ma_uint32 outSampleRate = 48000;
+    if (pUserData != nullptr) {
+        const auto* initCfg = static_cast<const sautiflow::FFmpegDecoderInitConfig*>(pUserData);
+        if (initCfg->targetChannels > 0) outChannels = (ma_uint32)initCfg->targetChannels;
+        if (initCfg->targetSampleRate > 0) outSampleRate = (ma_uint32)initCfg->targetSampleRate;
+    }
     int prebufferMs = isNetwork ? 1500 : 0;
 
     std::printf("[ffmpeg_backend] Requesting universal decoder for %s: %s\n",
