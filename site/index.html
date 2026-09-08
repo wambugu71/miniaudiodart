@@ -73,7 +73,7 @@
       <aside class="spec-card mono">
         <h3>// ENGINE CARD</h3>
         <ul>
-          <li><span>ENGINE</span><b>Sautiflow v0.6.26</b></li>
+          <li><span>ENGINE</span><b>Sautiflow v0.6.27</b></li>
           <li><span>FRAMEWORK</span><b>Flutter / Dart + FFI</b></li>
           <li><span>INTERFACE</span><b>Material 3 Expressive</b></li>
           <li><span>CORE</span><b>C++ · miniaudio</b></li>
@@ -181,18 +181,20 @@
       <article class="feat">
         <h3 class="mono">F/01 — SIGNAL PATH</h3>
         <ul>
+          <li>True 64-bit float DSP pipeline with zero-allocation buffer safety</li>
           <li>Auto Bit-Perfect mode with exclusive MMAP &amp; low-latency profiles (on supported devices)</li>
           <li>Hardware sample-rate matching; auto rate-switch for DACs</li>
+          <li>Remez equiripple polyphase oversampling (2x/4x) &amp; TPDF dither</li>
           <li>Loudness normalization to BS.1770-4 LUFS + true-peak limiter</li>
-          <li>Full-scale TPDF dithering, plugin delay compensation</li>
         </ul>
       </article>
       <article class="feat">
         <h3 class="mono">F/02 — DSP SUITE</h3>
         <ul>
-          <li>3-band &amp; multiband parametric equalizers with live graphs</li>
+          <li>Multiband parametric equalizers with Bell, Tilt, Shelf &amp; Notch filters</li>
+          <li>Studio Dattorro diffuse tank reverb with quadrature LFO modulation</li>
           <li>Crossfeed &amp; Ambiophonics R.A.C.E. with soundstage view</li>
-          <li>Convolver (impulse responses), DDC, reverb, delay, stereo widen</li>
+          <li>Convolver (impulse responses), DDC, delay, stereo widen &amp; dynamic bass</li>
           <li>Polarity invert, L/R swap, per-channel gain; AutoEQ import</li>
         </ul>
       </article>
@@ -217,12 +219,12 @@
       <article class="feat feat-wide">
         <h3 class="mono">F/05 — VISUALIZERS</h3>
         <ul class="chip-list mono">
-          <li>Cyber Tunnel</li><li>Plasma Sphere</li><li>Neon Spectrum</li><li>Warp Vortex</li>
-          <li>Solar Flare</li><li>Cyber Grid</li><li>Quantum Nebula</li><li>Electric Ring</li>
-          <li>Bars 3D</li><li>Kaleidoscope</li><li>Lattice</li><li>Biolum Waves</li>
-          <li>Starburst</li><li>Matrix Rain</li><li>Vaporwave Sun</li><li>Cyber City</li>
-          <li>Quantum Aurora</li><li>Black Hole</li><li>Cymatics</li><li>Particle Vortex</li>
-          <li>DNA Helix</li><li>Supernova</li>
+          <li>Physics Dot Matrix</li><li>Fluid Wave Area</li><li>Cyber Tunnel</li><li>Plasma Sphere</li>
+          <li>Neon Spectrum</li><li>Warp Vortex</li><li>Solar Flare</li><li>Cyber Grid</li>
+          <li>Quantum Nebula</li><li>Electric Ring</li><li>Bars 3D</li><li>Kaleidoscope</li>
+          <li>Lattice</li><li>Biolum Waves</li><li>Starburst</li><li>Matrix Rain</li>
+          <li>Vaporwave Sun</li><li>Cyber City</li><li>Quantum Aurora</li><li>Black Hole</li>
+          <li>Cymatics</li><li>Particle Vortex</li><li>DNA Helix</li><li>Supernova</li>
         </ul>
       </article>
     </div>

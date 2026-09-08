@@ -1,3 +1,15 @@
+## v0.6.27 — 2026-09-08
+- True 64-Bit Float DSP Pipeline: IEEE 754 double precision processing across the entire active DSP chain with zero-allocation buffer safety
+- Remez Equiripple Oversampler: Flat passband response (<0.75 dB ripple), exact DC unity gain, and inverted tap chronology fix
+- Dattorro Diffuse Tank Reverb: Studio-grade figure-8 diffuse tank with quadrature LFO modulation, Abbey Road pre-filter, and 14 decorrelated taps
+- Bell & Tilt Parametric EQ: New filter types with pivot frequency, variable slope, and composite frequency response graph
+- 4 Premier FFT Windows: Hann, Hamming, Blackman-Harris, and Flat-Top window functions with interactive settings selector
+- Next-Gen Spectrum Visualizers: Physics Dot Matrix and Fluid Wave Area custom canvas analyzers running at 60/120 FPS
+- Sample-Rate Aware Visualizers: Dynamic Nyquist limit calculations and Logarithmic vs Linear scaling modes
+- Streamlined EQ & UI Decimation: Optimized DSP chain ordering and readable 16/32 band Graphic EQ labels on mobile
+- Decoupled Stream Resampler: FFmpeg streams resampled via native SwrContext without external sinc dependencies
+- Memory & Queue Optimization: Downscaled isolate album art parsing (>99% RAM savings) and fast draggable queue scrollbar
+
 ## v0.6.26 — 2026-09-08
 - In-App Update Detection: Automated release discovery against GitHub Releases with architecture-aware asset matching
 - Background Isolate Downloader: Smooth 120 FPS downloads via dedicated worker isolate with throttled updates

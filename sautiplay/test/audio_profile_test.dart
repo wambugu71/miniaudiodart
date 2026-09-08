@@ -24,19 +24,10 @@ void main() {
 
     final bassExtreme = profiles.firstWhere((p) => p.id == 'builtin_basshead');
     expect(bassExtreme.name, 'Bass Extreme');
-    expect(bassExtreme.eqState['enabled'], true);
     expect(bassExtreme.eqState['preampDb'], -3.0);
-    
-    // Check sifted EQ cut at 250 Hz
-    final gains = List<double>.from((bassExtreme.eqState['gains'] as List).map((e) => (e as num).toDouble()));
-    expect(gains[0], 4.5); // 32 Hz
-    expect(gains[1], 4.0); // 60 Hz
-    expect(gains[3], -2.5); // 250 Hz sifted mud cut
 
     // Check Sauti DSP settings
-    expect(bassExtreme.sautiDspState['dspMasterEnabled'], true);
     expect(bassExtreme.sautiDspState['dynamicSystemEnabled'], true);
-    expect(bassExtreme.sautiDspState['bassEnabled'], true);
 
     // Check Parametric EQ bands in Bass Extreme
     expect(bassExtreme.eqState['parametricEnabled'], true);

@@ -149,7 +149,8 @@ class _SyncedLyricsWidgetState extends State<SyncedLyricsWidget> {
       if (widget.lyricsRaw.trim().isNotEmpty) {
         return Center(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
             child: SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
               child: Column(
@@ -239,7 +240,8 @@ class _SyncedLyricsWidgetState extends State<SyncedLyricsWidget> {
                       label: const Text('Import .lrc / .txt',
                           style: TextStyle(fontSize: 11)),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: widget.activeColor.withValues(alpha: 0.2),
+                        backgroundColor:
+                            widget.activeColor.withValues(alpha: 0.2),
                         foregroundColor: widget.activeColor,
                         padding: const EdgeInsets.symmetric(
                             horizontal: 10, vertical: 6),
@@ -258,7 +260,8 @@ class _SyncedLyricsWidgetState extends State<SyncedLyricsWidget> {
                         foregroundColor: Colors.white70,
                         padding: const EdgeInsets.symmetric(
                             horizontal: 10, vertical: 6),
-                        side: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
+                        side: BorderSide(
+                            color: Colors.white.withValues(alpha: 0.2)),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14)),
                       ),
@@ -302,7 +305,7 @@ class _SyncedLyricsWidgetState extends State<SyncedLyricsWidget> {
                   duration: const Duration(milliseconds: 250),
                   style: TextStyle(
                     fontSize:
-                        isActive ? widget.fontSize + 4.0 : widget.fontSize,
+                        isActive ? widget.fontSize + 1.0 : widget.fontSize,
                     fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
                     color: isActive ? widget.activeColor : widget.inactiveColor,
                     height: 1.3,

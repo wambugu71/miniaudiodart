@@ -24,7 +24,6 @@ import 'streaming_service.dart';
 import 'services/app_update_service.dart';
 import 'widgets/app_update_dialog.dart';
 import 'widgets/album_art_shape_selector.dart';
-import 'widgets/audio_engine_diagnostic_panel.dart';
 
 class SettingsScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
@@ -212,7 +211,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         setState(() => _isPlaying = status.isPlaying);
       }
     });
-    _lastFmAuthSub = LastFmService.instance.authSuccessStream.listen((username) {
+    _lastFmAuthSub =
+        LastFmService.instance.authSuccessStream.listen((username) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -401,7 +401,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-
   void _persistPhaseInversionSettings() {
     AppStateService.instance.savePhaseInversion(
       invertLeft: _phaseInvertLeft,
@@ -446,7 +445,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       safetyAttenuationDb: _safetyAttenuationDb,
     );
   }
-
 
   void _persistUiSettings() {
     AppStateService.instance.saveUiSettings(
@@ -679,20 +677,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 return ListenableBuilder(
                                   listenable: AppUpdateService.instance,
                                   builder: (context, _) {
-                                    final hasUpdate = AppUpdateService
-                                                .instance.stage ==
-                                            UpdateStage.available ||
+                                    final hasUpdate =
                                         AppUpdateService.instance.stage ==
-                                            UpdateStage.downloaded ||
-                                        AppUpdateService.instance.stage ==
-                                            UpdateStage.downloading;
+                                                UpdateStage.available ||
+                                            AppUpdateService.instance.stage ==
+                                                UpdateStage.downloaded ||
+                                            AppUpdateService.instance.stage ==
+                                                UpdateStage.downloading;
                                     return _buildCategoryCard(
                                       title: 'Misc & System',
                                       subtitle:
                                           'Open source licenses, updates, TLS, diagnostic logs',
                                       icon: Icons.admin_panel_settings_outlined,
-                                      accentColor:
-                                          hasUpdate ? Colors.greenAccent : _primary,
+                                      accentColor: hasUpdate
+                                          ? Colors.greenAccent
+                                          : _primary,
                                       badgeText: hasUpdate
                                           ? 'UPDATE AVAILABLE'
                                           : _appVersion,
@@ -1248,23 +1247,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return _buildSubScreenLayout(
           title: 'Audio & Processing',
           children: [
-            _buildSectionHeader('DIAGNOSTICS & TELEMETRY'),
-            const SizedBox(height: 8),
-            _buildCardContainer(
-              children: [
-                M3EListItem(
-                  headline: 'Audio Engine Diagnostic Panel',
-                  supportingText:
-                      'Real-time telemetry, PDC latency & "Why is this track resampled?" explainer',
-                  leading: _buildLeadingIcon(Icons.monitor_heart_outlined),
-                  trailing: const Icon(Icons.chevron_right_rounded,
-                      color: Colors.cyanAccent, size: 22),
-                  onTap: () {
-                    showAudioEngineDiagnosticPanel(context, widget.player);
-                  },
-                ),
-              ],
-            ),
             const SizedBox(height: 20),
             _buildSectionHeader('RESAMPLING & DITHERING'),
             const SizedBox(height: 8),
@@ -2551,7 +2533,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               M3ESegment(
                                 value: false,
                                 label: 'Linear',
-                                icon: Icon(Icons.linear_scale_rounded, size: 16),
+                                icon:
+                                    Icon(Icons.linear_scale_rounded, size: 16),
                               ),
                             ],
                             selected: {widget.analyzerLogScale},
@@ -2767,7 +2750,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-
   String _getFftSampleSizeDescription(int size) {
     switch (size) {
       case 256:
@@ -2820,7 +2802,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         widget.onAnalyzerLogScaleChanged(true);
         widget.onAnalyzerSampleSizeChanged(4096);
         widget.onAnalyzerWindowTypeChanged('blackman_harris');
-        widget.player.configureAnalyzer(frameSize: 4096, windowType: 'blackman_harris');
+        widget.player
+            .configureAnalyzer(frameSize: 4096, windowType: 'blackman_harris');
         break;
       case 'minimalist':
         widget.onAnalyzerEnabledChanged(true);
@@ -3491,8 +3474,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           color: Colors.green.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                              color: Colors.greenAccent
-                                  .withValues(alpha: 0.5)),
+                              color: Colors.greenAccent.withValues(alpha: 0.5)),
                         ),
                         child: const Text(
                           'UPDATE',
@@ -3526,8 +3508,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         if (isDownloading || isAvailable || isDownloaded) {
                           AppUpdateDialog.show(context);
                         } else {
-                          final hasUpdate = await updateService
-                              .checkForUpdates(isManual: true);
+                          final hasUpdate = await updateService.checkForUpdates(
+                              isManual: true);
                           if (context.mounted) {
                             if (hasUpdate) {
                               AppUpdateDialog.show(context);
@@ -4707,7 +4689,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
-
 
   String _getDitherModeName(int mode) {
     switch (mode) {
