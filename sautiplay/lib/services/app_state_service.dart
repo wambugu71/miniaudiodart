@@ -304,11 +304,11 @@ class AppStateService {
     return (
       enabled: prefs.getBool(_kReverbExEnabled) ?? false,
       preset: prefs.getString(_kReverbExPreset) ?? 'Custom',
-      wet: prefs.getDouble(_kReverbExWet) ?? 0.25,
-      dry: prefs.getDouble(_kReverbExDry) ?? 0.75,
-      roomSize: prefs.getDouble(_kReverbExRoomSize) ?? 0.6,
-      damping: prefs.getDouble(_kReverbExDamping) ?? 0.4,
-      preDelayMs: prefs.getDouble(_kReverbExPreDelayMs) ?? 20.0,
+      wet: prefs.getDouble(_kReverbExWet) ?? 0.18,
+      dry: prefs.getDouble(_kReverbExDry) ?? 0.95,
+      roomSize: prefs.getDouble(_kReverbExRoomSize) ?? 0.50,
+      damping: prefs.getDouble(_kReverbExDamping) ?? 0.40,
+      preDelayMs: prefs.getDouble(_kReverbExPreDelayMs) ?? 10.0,
       width: prefs.getDouble(_kReverbExWidth) ?? 1.0,
     );
   }

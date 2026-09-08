@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -148,6 +149,13 @@ class LibraryScreenState extends State<LibraryScreen>
   bool _isLoading = true;
   bool _isScanning = false;
   String _scanStatus = 'Checking library for changes...';
+
+  // Scroll Controller & Scroll Helper for large lists
+  late final ScrollController _scrollController;
+  bool _showScrollHelper = false;
+  StreamSubscription<PlayerStatus>? _playerStatusSub;
+  String? _currentlyPlayingPath;
+  List<LocalSongItem>? _lastPlayedTrackList;
   TrackViewMode _trackViewMode = TrackViewMode.list;
   String _groupByOption = 'None';
   bool _isSelectionMode = false;
@@ -176,6 +184,22 @@ class LibraryScreenState extends State<LibraryScreen>
   @override
   void initState() {
     super.initState();
+    _scrollController = ScrollController();
+    _scrollController.addListener(_onScroll);
+    if (widget.player != null) {
+      _playerStatusSub = widget.player!.statusStream.listen((status) {
+        if (!mounted) return;
+        if (_lastPlayedTrackList != null &&
+            status.currentIndex >= 0 &&
+            status.currentIndex < _lastPlayedTrackList!.length) {
+          final currentPath = _lastPlayedTrackList![status.currentIndex].path;
+          if (_currentlyPlayingPath != currentPath) {
+            setState(() => _currentlyPlayingPath = currentPath);
+          }
+        }
+      });
+    }
+
     if (widget.initialTabIndex == 1 || widget.initialTabIndex == 0) {
       _selectedCategory = LibraryCategory.tracks;
     } else if (widget.initialTabIndex == 2) {
@@ -190,6 +214,44 @@ class LibraryScreenState extends State<LibraryScreen>
     CachedStreamService.instance.init();
   }
 
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final isScrolledDown = _scrollController.offset > 350.0;
+    if (_showScrollHelper != isScrolledDown) {
+      setState(() => _showScrollHelper = isScrolledDown);
+    }
+  }
+
+  void _scrollToPlayingTrack() {
+    if (!_scrollController.hasClients || _filteredSongs.isEmpty) return;
+    final playingIdx = _currentlyPlayingPath != null
+        ? _filteredSongs.indexWhere((s) => s.path == _currentlyPlayingPath)
+        : -1;
+    if (playingIdx < 0) {
+      _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
+      );
+      return;
+    }
+
+    final double itemHeight =
+        _trackViewMode == TrackViewMode.compact ? 58.0 : 74.0;
+    // Account for slivers above the tracks list (~280px)
+    final targetOffset =
+        ((280.0 + (playingIdx * itemHeight)) - 180.0).clamp(
+      0.0,
+      _scrollController.position.maxScrollExtent,
+    );
+
+    _scrollController.animateTo(
+      targetOffset,
+      duration: const Duration(milliseconds: 380),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
   @override
   void didUpdateWidget(LibraryScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -200,6 +262,9 @@ class LibraryScreenState extends State<LibraryScreen>
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    _playerStatusSub?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -1863,10 +1928,18 @@ class LibraryScreenState extends State<LibraryScreen>
                       color: primaryColor,
                       backgroundColor: surfaceColor,
                       onRefresh: _rescanLibrary,
-                      child: CustomScrollView(
-                        physics: const BouncingScrollPhysics(
-                            parent: AlwaysScrollableScrollPhysics()),
-                        slivers: [
+                      child: Scrollbar(
+                        controller: _scrollController,
+                        thumbVisibility: true,
+                        interactive: true,
+                        thickness: 6.0,
+                        radius: const Radius.circular(8),
+                        child: CustomScrollView(
+                          controller: _scrollController,
+                          cacheExtent: 140.0,
+                          physics: const BouncingScrollPhysics(
+                              parent: AlwaysScrollableScrollPhysics()),
+                          slivers: [
                           // Top breathing space
                           const SliverToBoxAdapter(child: SizedBox(height: 12)),
 
@@ -2222,6 +2295,7 @@ class LibraryScreenState extends State<LibraryScreen>
                           ),
                         ],
                       ),
+                      ),
                     ),
                     if (_isLoading)
                       Container(
@@ -2232,6 +2306,137 @@ class LibraryScreenState extends State<LibraryScreen>
                               trackColor: primaryColor.withValues(alpha: 0.15)),
                         ),
                       ),
+                    // Floating Scroll Helper Dock (M3E style)
+                    Positioned(
+                      bottom: 85,
+                      right: isDesktop ? 36 : 16,
+                      child: AnimatedSlide(
+                        duration: const Duration(milliseconds: 260),
+                        curve: Curves.easeOutCubic,
+                        offset: _showScrollHelper
+                            ? Offset.zero
+                            : const Offset(0, 1.8),
+                        child: AnimatedOpacity(
+                          duration: const Duration(milliseconds: 220),
+                          curve: Curves.easeInOut,
+                          opacity: _showScrollHelper ? 1.0 : 0.0,
+                          child: IgnorePointer(
+                            ignoring: !_showScrollHelper,
+                            child: Builder(
+                              builder: (context) {
+                                final playingIdx = _currentlyPlayingPath != null
+                                    ? _filteredSongs.indexWhere((s) =>
+                                        s.path == _currentlyPlayingPath)
+                                    : -1;
+
+                                return Material(
+                                  elevation: 6,
+                                  shadowColor:
+                                      Colors.black.withValues(alpha: 0.45),
+                                  color: primaryColor,
+                                  borderRadius: BorderRadius.circular(24),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      InkWell(
+                                        borderRadius: BorderRadius.horizontal(
+                                          left: const Radius.circular(24),
+                                          right: Radius.circular(
+                                              playingIdx >= 0 ? 0 : 24),
+                                        ),
+                                        onTap: () {
+                                          _scrollController.animateTo(
+                                            0,
+                                            duration: const Duration(
+                                                milliseconds: 350),
+                                            curve: Curves.easeOutCubic,
+                                          );
+                                        },
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 14,
+                                            vertical: 9,
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.arrow_upward_rounded,
+                                                size: 16,
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .onPrimary,
+                                              ),
+                                              const SizedBox(width: 5),
+                                              Text(
+                                                'Top',
+                                                style: TextStyle(
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onPrimary,
+                                                  fontSize: 12.5,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                      if (playingIdx >= 0) ...[
+                                        Container(
+                                          width: 1,
+                                          height: 16,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onPrimary
+                                              .withValues(alpha: 0.25),
+                                        ),
+                                        InkWell(
+                                          borderRadius:
+                                              const BorderRadius.horizontal(
+                                            right: Radius.circular(24),
+                                          ),
+                                          onTap: _scrollToPlayingTrack,
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 13,
+                                              vertical: 9,
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.my_location_rounded,
+                                                  size: 16,
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onPrimary,
+                                                ),
+                                                const SizedBox(width: 6),
+                                                Text(
+                                                  'Playing #${playingIdx + 1}',
+                                                  style: TextStyle(
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .onPrimary,
+                                                    fontSize: 12.5,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -2985,97 +3190,97 @@ class LibraryScreenState extends State<LibraryScreen>
         );
       }
 
-      return SliverList(
-        delegate: SliverChildBuilderDelegate(
-          (context, groupIdx) {
-            final key = groupKeys[groupIdx];
-            final songs = groupedMap[key]!;
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Group Header Banner
-                InkWell(
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => LocalGroupDetailScreen(
-                          groupTitle: key,
-                          groupType: _groupByOption,
-                          songs: songs,
-                          onPlayFolder: widget.onPlayFolder,
-                          onPlayTracks: widget.onPlayTracks,
-                          onQueueTrack: widget.onQueueTrack,
-                          onDeleteTrack: (path) {
-                            widget.onDeleteTrack?.call(path);
-                            _updateAllSongs();
-                          },
-                          player: widget.player,
+    return SliverList(
+      delegate: SliverChildBuilderDelegate(
+        (context, groupIdx) {
+          final key = groupKeys[groupIdx];
+          final songs = groupedMap[key]!;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Group Header Banner
+              InkWell(
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => LocalGroupDetailScreen(
+                        groupTitle: key,
+                        groupType: _groupByOption,
+                        songs: songs,
+                        onPlayFolder: widget.onPlayFolder,
+                        onPlayTracks: widget.onPlayTracks,
+                        onQueueTrack: widget.onQueueTrack,
+                        onDeleteTrack: (path) {
+                          widget.onDeleteTrack?.call(path);
+                          _updateAllSongs();
+                        },
+                        player: widget.player,
+                      ),
+                    ),
+                  );
+                },
+                child: Container(
+                  margin: EdgeInsets.symmetric(
+                    horizontal: isDesktop ? 32.0 : 16.0,
+                    vertical: 8.0,
+                  ),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: _surfaceDark,
+                    borderRadius: BorderRadius.circular(14),
+                    border:
+                        Border.all(color: _outline.withValues(alpha: 0.15)),
+                  ),
+                  child: Row(
+                    children: [
+                      LocalAlbumArt(
+                        path: songs.first.path,
+                        size: isDesktop ? 52 : 44,
+                        borderRadius: 8,
+                        shape: Shapes.pill,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              key,
+                              style: TextStyle(
+                                fontSize: isDesktop ? 16 : 14,
+                                fontWeight: FontWeight.bold,
+                                color: _textPrimary,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${songs.length} Track${songs.length == 1 ? '' : 's'} • $_groupByOption',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: AppThemeService
+                                    .instance.currentData.textDark,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    );
-                  },
-                  child: Container(
-                    margin: EdgeInsets.symmetric(
-                      horizontal: isDesktop ? 32.0 : 16.0,
-                      vertical: 8.0,
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: _surfaceDark,
-                      borderRadius: BorderRadius.circular(12),
-                      border:
-                          Border.all(color: _outline.withValues(alpha: 0.2)),
-                    ),
-                    child: Row(
-                      children: [
-                        LocalAlbumArt(
-                          path: songs.first.path,
-                          size: 40,
-                          borderRadius: 8,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                key,
-                                style: TextStyle(
-                                  fontSize: isDesktop ? 16 : 14,
-                                  fontWeight: FontWeight.bold,
-                                  color: _textPrimary,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                '${songs.length} Track${songs.length == 1 ? '' : 's'} • $_groupByOption',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: AppThemeService
-                                      .instance.currentData.textDark,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          icon: Icon(Icons.play_circle_fill_rounded,
-                              color:
-                                  AppThemeService.instance.currentData.primary,
-                              size: 28),
-                          onPressed: () {
-                            final paths = songs.map((s) => s.path).toList();
-                            widget.onPlayFolder(paths, initialIndex: 0);
-                          },
-                          tooltip: 'Play Group',
-                        ),
-                      ],
-                    ),
+                      IconButton(
+                        icon: Icon(Icons.play_circle_fill_rounded,
+                            color:
+                                AppThemeService.instance.currentData.primary,
+                            size: 28),
+                        onPressed: () {
+                          final paths = songs.map((s) => s.path).toList();
+                          widget.onPlayFolder(paths, initialIndex: 0);
+                        },
+                        tooltip: 'Play Group',
+                      ),
+                    ],
                   ),
                 ),
+              ),
 
                 // Group Tracks
                 ...List.generate(songs.length, (i) {
@@ -3094,6 +3299,10 @@ class LibraryScreenState extends State<LibraryScreen>
                     isFirst: isFirst,
                     isLast: isLast,
                     onTap: () {
+                      setState(() {
+                        _currentlyPlayingPath = song.path;
+                        _lastPlayedTrackList = List.from(songs);
+                      });
                       final paths = songs.map((e) => e.path).toList();
                       widget.onPlayFolder(paths, initialIndex: i);
                     },
@@ -3108,6 +3317,8 @@ class LibraryScreenState extends State<LibraryScreen>
             );
           },
           childCount: groupKeys.length,
+          addAutomaticKeepAlives: false,
+          addRepaintBoundaries: true,
         ),
       );
     }
@@ -3136,6 +3347,8 @@ class LibraryScreenState extends State<LibraryScreen>
               );
             },
             childCount: _filteredSongs.length,
+            addAutomaticKeepAlives: false,
+            addRepaintBoundaries: true,
           ),
         ),
       );
@@ -3167,6 +3380,8 @@ class LibraryScreenState extends State<LibraryScreen>
               );
             },
             childCount: _filteredSongs.length,
+            addAutomaticKeepAlives: false,
+            addRepaintBoundaries: true,
           ),
         ),
       );
@@ -3201,6 +3416,10 @@ class LibraryScreenState extends State<LibraryScreen>
                   if (_isSelectionMode) {
                     _toggleTrackSelection(song.path);
                   } else {
+                    setState(() {
+                      _currentlyPlayingPath = song.path;
+                      _lastPlayedTrackList = List.from(_filteredSongs);
+                    });
                     final paths = _filteredSongs.map((e) => e.path).toList();
                     widget.onPlayFolder(paths, initialIndex: index);
                   }
@@ -3217,6 +3436,8 @@ class LibraryScreenState extends State<LibraryScreen>
               );
             },
             childCount: _filteredSongs.length,
+            addAutomaticKeepAlives: false,
+            addRepaintBoundaries: true,
           ),
         ),
       );
@@ -3265,6 +3486,10 @@ class LibraryScreenState extends State<LibraryScreen>
             if (isSelectionMode) {
               _toggleTrackSelection(song.path);
             } else {
+              setState(() {
+                _currentlyPlayingPath = song.path;
+                _lastPlayedTrackList = List.from(_filteredSongs);
+              });
               final paths = _filteredSongs.map((e) => e.path).toList();
               widget.onPlayFolder(paths, initialIndex: index);
             }
@@ -3377,6 +3602,10 @@ class LibraryScreenState extends State<LibraryScreen>
             if (isSelectionMode) {
               _toggleTrackSelection(song.path);
             } else {
+              setState(() {
+                _currentlyPlayingPath = song.path;
+                _lastPlayedTrackList = List.from(_filteredSongs);
+              });
               final paths = _filteredSongs.map((e) => e.path).toList();
               widget.onPlayFolder(paths, initialIndex: index);
             }

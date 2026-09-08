@@ -154,8 +154,7 @@ class EqScreen extends StatefulWidget {
       centerFocus: dialogEnhancerCenterFocus,
     );
 
-    final deEsserEnabled =
-        masterEnabled && (state['deEsserEnabled'] ?? false);
+    final deEsserEnabled = masterEnabled && (state['deEsserEnabled'] ?? false);
     final deEsserMode = DeEsserMode.values.firstWhere(
       (e) => e.value == (state['deEsserMode'] ?? 0),
       orElse: () => DeEsserMode.splitBand,
@@ -670,76 +669,76 @@ class _EqScreenState extends State<EqScreen>
       })> _reverbPresets = [
     (
       name: 'Custom',
-      wet: 0.25,
-      dry: 0.75,
-      roomSize: 0.6,
-      damping: 0.4,
-      preDelayMs: 20.0,
+      wet: 0.18,
+      dry: 0.95,
+      roomSize: 0.50,
+      damping: 0.40,
+      preDelayMs: 10.0,
       width: 1.0
     ),
     (
       name: 'Small Room',
-      wet: 0.22,
+      wet: 0.16,
       dry: 1.0,
-      roomSize: 0.25,
+      roomSize: 0.30,
       damping: 0.55,
-      preDelayMs: 8.0,
-      width: 0.9
+      preDelayMs: 4.0,
+      width: 0.85
     ),
     (
       name: 'Live Club',
-      wet: 0.28,
-      dry: 0.95,
-      roomSize: 0.42,
+      wet: 0.20,
+      dry: 0.98,
+      roomSize: 0.45,
       damping: 0.45,
-      preDelayMs: 12.0,
-      width: 1.0
+      preDelayMs: 8.0,
+      width: 0.95
     ),
     (
       name: 'Concert Hall',
-      wet: 0.35,
-      dry: 0.90,
-      roomSize: 0.72,
+      wet: 0.22,
+      dry: 0.95,
+      roomSize: 0.70,
       damping: 0.35,
-      preDelayMs: 25.0,
+      preDelayMs: 14.0,
       width: 1.0
     ),
     (
       name: 'Cathedral',
-      wet: 0.45,
-      dry: 0.85,
-      roomSize: 0.95,
-      damping: 0.20,
-      preDelayMs: 60.0,
+      wet: 0.26,
+      dry: 0.92,
+      roomSize: 0.88,
+      damping: 0.25,
+      preDelayMs: 20.0,
       width: 1.0
     ),
     (
       name: 'Studio Plate',
-      wet: 0.32,
+      wet: 0.20,
       dry: 1.0,
-      roomSize: 0.50,
-      damping: 0.05,
-      preDelayMs: 4.0,
+      roomSize: 0.55,
+      damping: 0.15,
+      preDelayMs: 2.0,
       width: 1.0
     ),
     (
       name: 'Ambient Drift',
-      wet: 0.55,
-      dry: 0.70,
-      roomSize: 0.85,
-      damping: 0.10,
-      preDelayMs: 45.0,
+      wet: 0.30,
+      dry: 0.85,
+      roomSize: 0.92,
+      damping: 0.12,
+      preDelayMs: 25.0,
       width: 1.0
     ),
   ];
 
   String _reverbPreset = 'Custom';
   bool _reverbEnabled = false;
-  double _reverbWet = 0.25;
-  double _reverbDry = 0.75;
-  double _reverbRoomSize = 0.6;
-  double _reverbDamping = 0.4;
-  double _reverbPreDelayMs = 20.0;
+  double _reverbWet = 0.18;
+  double _reverbDry = 0.95;
+  double _reverbRoomSize = 0.50;
+  double _reverbDamping = 0.40;
+  double _reverbPreDelayMs = 10.0;
   double _reverbWidth = 1.0;
 
   // Audio Tuning (3-band EQ)
@@ -1249,8 +1248,7 @@ class _EqScreenState extends State<EqScreen>
             (dspMap['deEsserFrequencyHz'] as num?)?.toDouble() ?? 5500.0;
         _deEsserThresholdDb =
             (dspMap['deEsserThresholdDb'] as num?)?.toDouble() ?? -22.0;
-        _deEsserRatio =
-            (dspMap['deEsserRatio'] as num?)?.toDouble() ?? 4.0;
+        _deEsserRatio = (dspMap['deEsserRatio'] as num?)?.toDouble() ?? 4.0;
         _deEsserMaxReductionDb =
             (dspMap['deEsserMaxReductionDb'] as num?)?.toDouble() ?? 12.0;
         _deEsserAttackMs =
@@ -2027,11 +2025,11 @@ class _EqScreenState extends State<EqScreen>
 
       _reverbEnabled = false;
       _reverbPreset = 'Custom';
-      _reverbWet = 0.25;
-      _reverbDry = 0.75;
-      _reverbRoomSize = 0.6;
-      _reverbDamping = 0.4;
-      _reverbPreDelayMs = 20.0;
+      _reverbWet = 0.18;
+      _reverbDry = 0.95;
+      _reverbRoomSize = 0.50;
+      _reverbDamping = 0.40;
+      _reverbPreDelayMs = 10.0;
       _reverbWidth = 1.0;
       widget.player.setReverbEx(
         enabled: false,
@@ -3476,9 +3474,9 @@ class _EqScreenState extends State<EqScreen>
                 ],
               ),
               M3EButton.icon(
-                icon: Icon(Icons.tune_rounded, size: 16, color: primaryColor),
+                icon: Icon(Icons.tune_rounded, size: 16, color: Colors.white),
                 label:
-                    Text('Adjust Speed', style: TextStyle(color: primaryColor)),
+                    Text('Adjust Speed', style: TextStyle(color: Colors.white)),
                 onPressed: () async {
                   await showPlaybackSpeedModal(
                     context,
@@ -4872,10 +4870,10 @@ class _EqScreenState extends State<EqScreen>
             // Dropdown in expanded container
             Expanded(
               child: _buildM3EDropdown<String>(
-                value: _getAllParametricPresetNames()
-                        .contains(_parametricPreset)
-                    ? _parametricPreset
-                    : 'Custom',
+                value:
+                    _getAllParametricPresetNames().contains(_parametricPreset)
+                        ? _parametricPreset
+                        : 'Custom',
                 searchEnabled: true,
                 items: _buildParametricM3EDropdownItems(),
                 onChanged: (v) {
@@ -5747,9 +5745,8 @@ class _EqScreenState extends State<EqScreen>
                 items: TransducerProfile.values.map((profile) {
                   return M3EDropdownItem<TransducerProfile>(
                     value: profile,
-                    label: profile.label.isNotEmpty
-                        ? profile.label
-                        : profile.name,
+                    label:
+                        profile.label.isNotEmpty ? profile.label : profile.name,
                   );
                 }).toList(),
                 onChanged: (val) {
@@ -5922,9 +5919,8 @@ class _EqScreenState extends State<EqScreen>
                 items: DialogEnhancerProfile.values.map((profile) {
                   return M3EDropdownItem<DialogEnhancerProfile>(
                     value: profile,
-                    label: profile.label.isNotEmpty
-                        ? profile.label
-                        : profile.name,
+                    label:
+                        profile.label.isNotEmpty ? profile.label : profile.name,
                   );
                 }).toList(),
                 onChanged: (val) {
@@ -7346,7 +7342,7 @@ class _EqScreenState extends State<EqScreen>
         child: Icon(Icons.wb_twilight_rounded, color: primaryColor, size: 20),
       ),
       title: 'Reverb',
-      subtitle: 'Freeverb room simulation',
+      subtitle: 'Diffuse tank acoustic space',
       isEnabled: _reverbEnabled,
       onToggle: (v) {
         setState(() => _reverbEnabled = v);
