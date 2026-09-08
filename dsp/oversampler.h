@@ -18,38 +18,37 @@ namespace sauti::dsp {
 //   - Zero dynamic heap allocation in the audio render thread (process loop).
 // =============================================================================
 
-class HalfBandFilter2x {
+template <typename T = float>
+class HalfBandFilter2xT {
 public:
     static constexpr int TAPS = 23;
     static constexpr int NUM_ODD_COEFFS = 5;
 
-    HalfBandFilter2x() {
+    HalfBandFilter2xT() {
         reset();
     }
 
     void reset() {
         for (int ch = 0; ch < 2; ++ch) {
-            std::fill(history_up_[ch], history_up_[ch] + 16, 0.0f);
-            std::fill(history_down_[ch], history_down_[ch] + 32, 0.0f);
+            std::fill(history_up_[ch], history_up_[ch] + 16, static_cast<T>(0));
+            std::fill(history_down_[ch], history_down_[ch] + 32, static_cast<T>(0));
         }
         hist_idx_up_ = 0;
         hist_idx_down_ = 0;
     }
 
     // Upsample 1 stereo frame (in_l, in_r) -> 2 stereo frames (out_l0, out_r0, out_l1, out_r1)
-    inline void upsample2xFrame(float in_l, float in_r,
-                                float& out_l0, float& out_r0,
-                                float& out_l1, float& out_r1) {
+    inline void upsample2xFrame(T in_l, T in_r,
+                                T& out_l0, T& out_r0,
+                                T& out_l1, T& out_r1) {
         // Store current native sample in circular history (size 16)
         history_up_[0][hist_idx_up_] = in_l;
         history_up_[1][hist_idx_up_] = in_r;
 
-        // Even sample: delayed by 5 native samples (x[n-5])
+        // Native sample delayed by 5 native samples (x[n-5], at t = -5.0T)
         const int idx5 = (hist_idx_up_ - 5 + 16) & 15;
-        out_l0 = history_up_[0][idx5];
-        out_r0 = history_up_[1][idx5];
 
-        // Odd sample: symmetric FIR interpolation between x[n-5] and x[n-6]
+        // Symmetric FIR odd interpolation between x[n-5] and x[n-6] (at t = -5.5T)
         const int idx6  = (hist_idx_up_ - 6 + 16) & 15;
         const int idx4  = (hist_idx_up_ - 4 + 16) & 15;
         const int idx7  = (hist_idx_up_ - 7 + 16) & 15;
@@ -60,28 +59,38 @@ public:
         const int idx1  = (hist_idx_up_ - 1 + 16) & 15;
         const int idx10 = (hist_idx_up_ - 10 + 16) & 15;
 
-        float sum_l = C[0] * (history_up_[0][idx5] + history_up_[0][idx6])
-                    + C[1] * (history_up_[0][idx4] + history_up_[0][idx7])
-                    + C[2] * (history_up_[0][idx3] + history_up_[0][idx8])
-                    + C[3] * (history_up_[0][idx2] + history_up_[0][idx9])
-                    + C[4] * (history_up_[0][idx1] + history_up_[0][idx10]);
+        const T c0 = static_cast<T>(C[0]);
+        const T c1 = static_cast<T>(C[1]);
+        const T c2 = static_cast<T>(C[2]);
+        const T c3 = static_cast<T>(C[3]);
+        const T c4 = static_cast<T>(C[4]);
 
-        float sum_r = C[0] * (history_up_[1][idx5] + history_up_[1][idx6])
-                    + C[1] * (history_up_[1][idx4] + history_up_[1][idx7])
-                    + C[2] * (history_up_[1][idx3] + history_up_[1][idx8])
-                    + C[3] * (history_up_[1][idx2] + history_up_[1][idx9])
-                    + C[4] * (history_up_[1][idx1] + history_up_[1][idx10]);
+        T sum_l = c0 * (history_up_[0][idx5] + history_up_[0][idx6])
+                + c1 * (history_up_[0][idx4] + history_up_[0][idx7])
+                + c2 * (history_up_[0][idx3] + history_up_[0][idx8])
+                + c3 * (history_up_[0][idx2] + history_up_[0][idx9])
+                + c4 * (history_up_[0][idx1] + history_up_[0][idx10]);
 
-        out_l1 = sum_l;
-        out_r1 = sum_r;
+        T sum_r = c0 * (history_up_[1][idx5] + history_up_[1][idx6])
+                + c1 * (history_up_[1][idx4] + history_up_[1][idx7])
+                + c2 * (history_up_[1][idx3] + history_up_[1][idx8])
+                + c3 * (history_up_[1][idx2] + history_up_[1][idx9])
+                + c4 * (history_up_[1][idx1] + history_up_[1][idx10]);
+
+        // Chronological order:
+        // Midpoint (t = -5.5T) comes before delayed sample (t = -5.0T) in forward time.
+        out_l0 = sum_l;
+        out_r0 = sum_r;
+        out_l1 = history_up_[0][idx5];
+        out_r1 = history_up_[1][idx5];
 
         hist_idx_up_ = (hist_idx_up_ + 1) & 15;
     }
 
     // Downsample 2 oversampled stereo frames -> 1 decimated stereo frame (out_l, out_r)
-    inline void downsample2xFrame(float in_l0, float in_r0,
-                                  float in_l1, float in_r1,
-                                  float& out_l, float& out_r) {
+    inline void downsample2xFrame(T in_l0, T in_r0,
+                                  T in_l1, T in_r1,
+                                  T& out_l, T& out_r) {
         // Push 2 oversampled frames into history (size 32)
         history_down_[0][hist_idx_down_] = in_l0;
         history_down_[1][hist_idx_down_] = in_r0;
@@ -93,8 +102,8 @@ public:
 
         // Center tap is delayed by 11 oversampled samples
         const int center = (hist_idx_down_ - 1 - 11 + 32) & 31;
-        const float center_l = history_down_[0][center] * 0.5f;
-        const float center_r = history_down_[1][center] * 0.5f;
+        const T center_l = history_down_[0][center] * static_cast<T>(0.5);
+        const T center_r = history_down_[1][center] * static_cast<T>(0.5);
 
         // Odd taps convolution (scaled by 0.5 for unity decimation gain)
         const int p1 = (center + 1) & 31; const int m1 = (center - 1 + 32) & 31;
@@ -103,37 +112,47 @@ public:
         const int p7 = (center + 7) & 31; const int m7 = (center - 7 + 32) & 31;
         const int p9 = (center + 9) & 31; const int m9 = (center - 9 + 32) & 31;
 
-        float sum_l = (C[0] * 0.5f) * (history_down_[0][p1] + history_down_[0][m1])
-                    + (C[1] * 0.5f) * (history_down_[0][p3] + history_down_[0][m3])
-                    + (C[2] * 0.5f) * (history_down_[0][p5] + history_down_[0][m5])
-                    + (C[3] * 0.5f) * (history_down_[0][p7] + history_down_[0][m7])
-                    + (C[4] * 0.5f) * (history_down_[0][p9] + history_down_[0][m9]);
+        const T c0_half = static_cast<T>(C[0] * 0.5);
+        const T c1_half = static_cast<T>(C[1] * 0.5);
+        const T c2_half = static_cast<T>(C[2] * 0.5);
+        const T c3_half = static_cast<T>(C[3] * 0.5);
+        const T c4_half = static_cast<T>(C[4] * 0.5);
 
-        float sum_r = (C[0] * 0.5f) * (history_down_[1][p1] + history_down_[1][m1])
-                    + (C[1] * 0.5f) * (history_down_[1][p3] + history_down_[1][m3])
-                    + (C[2] * 0.5f) * (history_down_[1][p5] + history_down_[1][m5])
-                    + (C[3] * 0.5f) * (history_down_[1][p7] + history_down_[1][m7])
-                    + (C[4] * 0.5f) * (history_down_[1][p9] + history_down_[1][m9]);
+        T sum_l = c0_half * (history_down_[0][p1] + history_down_[0][m1])
+                + c1_half * (history_down_[0][p3] + history_down_[0][m3])
+                + c2_half * (history_down_[0][p5] + history_down_[0][m5])
+                + c3_half * (history_down_[0][p7] + history_down_[0][m7])
+                + c4_half * (history_down_[0][p9] + history_down_[0][m9]);
+
+        T sum_r = c0_half * (history_down_[1][p1] + history_down_[1][m1])
+                + c1_half * (history_down_[1][p3] + history_down_[1][m3])
+                + c2_half * (history_down_[1][p5] + history_down_[1][m5])
+                + c3_half * (history_down_[1][p7] + history_down_[1][m7])
+                + c4_half * (history_down_[1][p9] + history_down_[1][m9]);
 
         out_l = center_l + sum_l;
         out_r = center_r + sum_r;
     }
 
 private:
-    // Precision halfband FIR odd coefficients (sum = 0.5, >85 dB attenuation)
-    static constexpr float C[NUM_ODD_COEFFS] = {
-         0.6317866f,   // offset +/- 1
-        -0.1940456f,   // offset +/- 3
-         0.0833700f,   // offset +/- 5
-        -0.0292246f,   // offset +/- 7
-         0.0081136f    // offset +/- 9
+    // Remez equiripple half-band FIR odd coefficients (exact sum = 0.5 for unity DC gain, <0.7 dB passband ripple up to 20 kHz, >33 dB stopband attenuation)
+    static constexpr double C[NUM_ODD_COEFFS] = {
+         0.6267287344062844,   // offset +/- 1
+        -0.1988454750252417,   // offset +/- 3
+         0.0954479500909841,   // offset +/- 5
+        -0.05996171616882944,  // offset +/- 7
+         0.03663050669680253   // offset +/- 9
     };
 
-    float history_up_[2][16] = {};
-    float history_down_[2][32] = {};
+    T history_up_[2][16] = {};
+    T history_down_[2][32] = {};
     int hist_idx_up_ = 0;
     int hist_idx_down_ = 0;
 };
+
+// Typedef aliases
+using HalfBandFilter2x = HalfBandFilter2xT<float>;
+using HalfBandFilter2x64 = HalfBandFilter2xT<double>;
 
 // =============================================================================
 // PolyphaseOversampler2x
@@ -141,9 +160,10 @@ private:
 // stereo buffers for zero-allocation realtime execution.
 // =============================================================================
 
-class PolyphaseOversampler2x {
+template <typename T = float>
+class PolyphaseOversampler2xT {
 public:
-    PolyphaseOversampler2x() {
+    PolyphaseOversampler2xT() {
         init(48000, 4096);
     }
 
@@ -151,8 +171,8 @@ public:
         sampleRate_ = (sampleRate > 0) ? sampleRate : 48000;
         maxFrames_ = std::max(maxFrames, 512u);
         
-        // Pre-allocate buffer for 2x frames (interleaved stereo: 2 * maxFrames * 2 floats)
-        oversampledBuffer_.resize(maxFrames_ * 4, 0.0f);
+        // Pre-allocate buffer for 2x frames (interleaved stereo: 2 * maxFrames * 2 samples)
+        oversampledBuffer_.resize(maxFrames_ * 4, static_cast<T>(0));
         filter_.reset();
     }
 
@@ -165,20 +185,20 @@ public:
 
     // Upsample interleaved stereo: in_samples [L0, R0, L1, R1, ...] (frame_count frames)
     // Returns pointer to oversampled interleaved buffer (2 * frame_count frames).
-    float* upsample(const float* in_samples, uint32_t frame_count) {
+    T* upsample(const T* in_samples, uint32_t frame_count) {
         if (!in_samples || frame_count == 0) return nullptr;
 
         if (frame_count * 4 > oversampledBuffer_.size()) {
             oversampledBuffer_.resize(frame_count * 4);
         }
 
-        float* out = oversampledBuffer_.data();
+        T* out = oversampledBuffer_.data();
 
         for (uint32_t i = 0; i < frame_count; ++i) {
-            float in_l = in_samples[2 * i];
-            float in_r = in_samples[2 * i + 1];
+            T in_l = in_samples[2 * i];
+            T in_r = in_samples[2 * i + 1];
 
-            float l0, r0, l1, r1;
+            T l0, r0, l1, r1;
             filter_.upsample2xFrame(in_l, in_r, l0, r0, l1, r1);
 
             out[4 * i]     = l0;
@@ -191,16 +211,16 @@ public:
     }
 
     // Downsample oversampled buffer back into native interleaved stereo buffer (frame_count frames)
-    void downsample(const float* oversampled_samples, float* out_samples, uint32_t frame_count) {
+    void downsample(const T* oversampled_samples, T* out_samples, uint32_t frame_count) {
         if (!oversampled_samples || !out_samples || frame_count == 0) return;
 
         for (uint32_t i = 0; i < frame_count; ++i) {
-            float l0 = oversampled_samples[4 * i];
-            float r0 = oversampled_samples[4 * i + 1];
-            float l1 = oversampled_samples[4 * i + 2];
-            float r1 = oversampled_samples[4 * i + 3];
+            T l0 = oversampled_samples[4 * i];
+            T r0 = oversampled_samples[4 * i + 1];
+            T l1 = oversampled_samples[4 * i + 2];
+            T r1 = oversampled_samples[4 * i + 3];
 
-            float out_l, out_r;
+            T out_l, out_r;
             filter_.downsample2xFrame(l0, r0, l1, r1, out_l, out_r);
 
             out_samples[2 * i]     = out_l;
@@ -209,10 +229,10 @@ public:
     }
 
     template <typename ProcessFunc>
-    void process(float* interleaved_samples, uint32_t frame_count, ProcessFunc&& func) {
+    void process(T* interleaved_samples, uint32_t frame_count, ProcessFunc&& func) {
         if (!interleaved_samples || frame_count == 0) return;
 
-        float* oversampled = upsample(interleaved_samples, frame_count);
+        T* oversampled = upsample(interleaved_samples, frame_count);
         if (oversampled) {
             func(oversampled, frame_count * 2);
             downsample(oversampled, interleaved_samples, frame_count);
@@ -222,18 +242,22 @@ public:
 private:
     int sampleRate_ = 48000;
     uint32_t maxFrames_ = 4096;
-    HalfBandFilter2x filter_;
-    std::vector<float> oversampledBuffer_;
+    HalfBandFilter2xT<T> filter_;
+    std::vector<T> oversampledBuffer_;
 };
+
+using PolyphaseOversampler2x = PolyphaseOversampler2xT<float>;
+using PolyphaseOversampler2x64 = PolyphaseOversampler2xT<double>;
 
 // =============================================================================
 // PolyphaseOversampler4x
 // Cascades two HalfBandFilter2x stages for 4x oversampling.
 // =============================================================================
 
-class PolyphaseOversampler4x {
+template <typename T = float>
+class PolyphaseOversampler4xT {
 public:
-    PolyphaseOversampler4x() {
+    PolyphaseOversampler4xT() {
         init(48000, 4096);
     }
 
@@ -241,8 +265,8 @@ public:
         sampleRate_ = (sampleRate > 0) ? sampleRate : 48000;
         maxFrames_ = std::max(maxFrames, 512u);
         
-        stage1_buf_.resize(maxFrames_ * 4, 0.0f); // 2x rate
-        stage2_buf_.resize(maxFrames_ * 8, 0.0f); // 4x rate
+        stage1_buf_.resize(maxFrames_ * 4, static_cast<T>(0)); // 2x rate
+        stage2_buf_.resize(maxFrames_ * 8, static_cast<T>(0)); // 4x rate
         filter1_.reset();
         filter2_.reset();
     }
@@ -256,7 +280,7 @@ public:
     int getNativeRate() const { return sampleRate_; }
 
     template <typename ProcessFunc>
-    void process(float* interleaved_samples, uint32_t frame_count, ProcessFunc&& func) {
+    void process(T* interleaved_samples, uint32_t frame_count, ProcessFunc&& func) {
         if (!interleaved_samples || frame_count == 0) return;
 
         if (frame_count * 8 > stage2_buf_.size()) {
@@ -265,11 +289,11 @@ public:
         }
 
         // Stage 1: 1x -> 2x
-        float* s1 = stage1_buf_.data();
+        T* s1 = stage1_buf_.data();
         for (uint32_t i = 0; i < frame_count; ++i) {
-            float in_l = interleaved_samples[2 * i];
-            float in_r = interleaved_samples[2 * i + 1];
-            float l0, r0, l1, r1;
+            T in_l = interleaved_samples[2 * i];
+            T in_r = interleaved_samples[2 * i + 1];
+            T l0, r0, l1, r1;
             filter1_.upsample2xFrame(in_l, in_r, l0, r0, l1, r1);
             s1[4 * i]     = l0;
             s1[4 * i + 1] = r0;
@@ -279,11 +303,11 @@ public:
 
         // Stage 2: 2x -> 4x
         const uint32_t frames_2x = frame_count * 2;
-        float* s2 = stage2_buf_.data();
+        T* s2 = stage2_buf_.data();
         for (uint32_t i = 0; i < frames_2x; ++i) {
-            float in_l = s1[2 * i];
-            float in_r = s1[2 * i + 1];
-            float l0, r0, l1, r1;
+            T in_l = s1[2 * i];
+            T in_r = s1[2 * i + 1];
+            T l0, r0, l1, r1;
             filter2_.upsample2xFrame(in_l, in_r, l0, r0, l1, r1);
             s2[4 * i]     = l0;
             s2[4 * i + 1] = r0;
@@ -296,11 +320,11 @@ public:
 
         // Stage 2 downsample: 4x -> 2x
         for (uint32_t i = 0; i < frames_2x; ++i) {
-            float l0 = s2[4 * i];
-            float r0 = s2[4 * i + 1];
-            float l1 = s2[4 * i + 2];
-            float r1 = s2[4 * i + 3];
-            float out_l, out_r;
+            T l0 = s2[4 * i];
+            T r0 = s2[4 * i + 1];
+            T l1 = s2[4 * i + 2];
+            T r1 = s2[4 * i + 3];
+            T out_l, out_r;
             filter2_.downsample2xFrame(l0, r0, l1, r1, out_l, out_r);
             s1[2 * i]     = out_l;
             s1[2 * i + 1] = out_r;
@@ -308,11 +332,11 @@ public:
 
         // Stage 1 downsample: 2x -> 1x
         for (uint32_t i = 0; i < frame_count; ++i) {
-            float l0 = s1[4 * i];
-            float r0 = s1[4 * i + 1];
-            float l1 = s1[4 * i + 2];
-            float r1 = s1[4 * i + 3];
-            float out_l, out_r;
+            T l0 = s1[4 * i];
+            T r0 = s1[4 * i + 1];
+            T l1 = s1[4 * i + 2];
+            T r1 = s1[4 * i + 3];
+            T out_l, out_r;
             filter1_.downsample2xFrame(l0, r0, l1, r1, out_l, out_r);
             interleaved_samples[2 * i]     = out_l;
             interleaved_samples[2 * i + 1] = out_r;
@@ -322,10 +346,13 @@ public:
 private:
     int sampleRate_ = 48000;
     uint32_t maxFrames_ = 4096;
-    HalfBandFilter2x filter1_;
-    HalfBandFilter2x filter2_;
-    std::vector<float> stage1_buf_;
-    std::vector<float> stage2_buf_;
+    HalfBandFilter2xT<T> filter1_;
+    HalfBandFilter2xT<T> filter2_;
+    std::vector<T> stage1_buf_;
+    std::vector<T> stage2_buf_;
 };
+
+using PolyphaseOversampler4x = PolyphaseOversampler4xT<float>;
+using PolyphaseOversampler4x64 = PolyphaseOversampler4xT<double>;
 
 } // namespace sauti::dsp

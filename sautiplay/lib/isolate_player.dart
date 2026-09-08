@@ -385,6 +385,10 @@ class IsolateAudioPlayer {
     _send({'cmd': 'set64BitProcessingEnabled', 'enabled': enabled});
   }
 
+  void setDspOversampling(int factor) {
+    _send({'cmd': 'setDspOversampling', 'factor': factor});
+  }
+
   void setAutoSampleRateMatchEnabled(bool enabled) {
     _send({'cmd': 'setAutoSampleRateMatchEnabled', 'enabled': enabled});
   }
@@ -1896,6 +1900,9 @@ void _isolateEntry(_IsolateInitData initData) {
           break;
         case 'set64BitProcessingEnabled':
           player.set64BitProcessingEnabled(message['enabled'] == true);
+          break;
+        case 'setDspOversampling':
+          player.setDspOversampling((message['factor'] as num?)?.toInt() ?? 1);
           break;
         case 'setAutoSampleRateMatchEnabled':
         case 'setAutoBitPerfectEnabled':

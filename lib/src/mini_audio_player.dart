@@ -389,6 +389,12 @@ class MiniAudioPlayer {
   /// Check if 64-bit floating point DSP processing mode is active.
   bool get is64BitProcessingEnabled => _engine.get64BitProcessingEnabled();
 
+  /// Set native DSP oversampling factor (1 = off, 2 = 2x polyphase half-band, 4 = 4x polyphase cascaded).
+  void setDspOversampling(int factor) => _engine.setDspOversampling(factor);
+
+  /// Get current native DSP oversampling factor (1, 2, or 4).
+  int get dspOversampling => _engine.getDspOversampling();
+
   /// Enable or disable Auto Sample-Rate Match hardware sample-rate matching.
   void setAutoSampleRateMatchEnabled(bool enabled) =>
       _engine.setAutoSampleRateMatchEnabled(enabled);

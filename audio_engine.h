@@ -304,6 +304,10 @@ extern "C"
     AE_API void ae_set_64bit_processing_enabled(AudioEngineHandle *engine, int enabled);
     AE_API int ae_get_64bit_processing_enabled(AudioEngineHandle *engine);
 
+    // DSP Oversampling (1x = off, 2x = 2x polyphase half-band, 4x = 4x cascaded)
+    AE_API void ae_set_dsp_oversampling(AudioEngineHandle *engine, int factor);
+    AE_API int ae_get_dsp_oversampling(AudioEngineHandle *engine);
+
     // Auto Sample-Rate Match Hardware Rate & Bit-Depth Matching
     AE_API void ae_set_auto_sample_rate_match_enabled(AudioEngineHandle *engine, int enabled);
     AE_API int ae_get_auto_sample_rate_match_enabled(AudioEngineHandle *engine);

@@ -101,6 +101,36 @@ static void test_dsp_setters_smoke()
     ae_destroy_engine(e);
 }
 
+static void test_64bit_and_oversampling_api()
+{
+    std::printf("\n== 64-bit DSP & Oversampling Engine API ==\n");
+    AudioEngineHandle *e = ae_create_engine(48000, 2);
+    CHECK(e != nullptr, "engine created");
+
+    // 1. 64-bit processing toggle
+    CHECK(ae_get_64bit_processing_enabled(e) == 0, "64-bit processing disabled by default");
+    ae_set_64bit_processing_enabled(e, 1);
+    CHECK(ae_get_64bit_processing_enabled(e) == 1, "64-bit processing enabled");
+    ae_set_64bit_processing_enabled(e, 0);
+    CHECK(ae_get_64bit_processing_enabled(e) == 0, "64-bit processing disabled again");
+
+    // 2. Oversampling factor
+    CHECK(ae_get_dsp_oversampling(e) == 1, "oversampling default is 1x");
+    ae_set_dsp_oversampling(e, 2);
+    CHECK(ae_get_dsp_oversampling(e) == 2, "oversampling set to 2x");
+    ae_set_dsp_oversampling(e, 4);
+    CHECK(ae_get_dsp_oversampling(e) == 4, "oversampling set to 4x");
+    // Test clamping
+    ae_set_dsp_oversampling(e, 3);
+    CHECK(ae_get_dsp_oversampling(e) == 4, "oversampling factor 3 clamped to 4x");
+    ae_set_dsp_oversampling(e, 0);
+    CHECK(ae_get_dsp_oversampling(e) == 1, "oversampling factor 0 clamped to 1x");
+    ae_set_dsp_oversampling(e, 8);
+    CHECK(ae_get_dsp_oversampling(e) == 4, "oversampling factor 8 clamped to 4x");
+
+    ae_destroy_engine(e);
+}
+
 static void test_end_callback_race()
 {
     std::printf("\n== End callback registration ([C] 1.9) ==\n");
@@ -306,6 +336,7 @@ int main()
 
     test_create_destroy();
     test_dsp_setters_smoke();
+    test_64bit_and_oversampling_api();
     test_end_callback_race();
     test_push_stream_abort();
     test_telemetry_fields();

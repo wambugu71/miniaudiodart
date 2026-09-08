@@ -2151,6 +2151,18 @@ class AudioEngineFFI {
     }
 
     try {
+      _setDspOversampling =
+          _lib.lookupFunction<_SetIntNative, _SetIntDart>(
+              'ae_set_dsp_oversampling');
+      _getDspOversampling =
+          _lib.lookupFunction<_GetIntNative, _GetIntDart>(
+              'ae_get_dsp_oversampling');
+    } catch (_) {
+      _setDspOversampling = null;
+      _getDspOversampling = null;
+    }
+
+    try {
       _setAutoSampleRateMatchEnabled =
           _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
               'ae_set_auto_sample_rate_match_enabled');
@@ -2572,6 +2584,8 @@ class AudioEngineFFI {
   late final _GetEngineDitherModeDart _getEngineDitherMode;
   late final _SetFxEnabledDart? _set64BitProcessingEnabled;
   late final _GetIntDart? _get64BitProcessingEnabled;
+  late final _SetIntDart? _setDspOversampling;
+  late final _GetIntDart? _getDspOversampling;
   late final _SetFxEnabledDart? _setAutoSampleRateMatchEnabled;
   late final _GetIntDart? _getAutoSampleRateMatchEnabled;
   _GetIntDart? _consumePendingRateChange;
@@ -3954,6 +3968,18 @@ class AudioEngineFFI {
       return false;
     }
     return _get64BitProcessingEnabled(_engine) != 0;
+  }
+
+  /// Set native DSP oversampling factor (1 = off/1x, 2 = 2x polyphase half-band, 4 = 4x polyphase cascaded).
+  void setDspOversampling(int factor) {
+    if (_engine == ffi.nullptr || _setDspOversampling == null) return;
+    _setDspOversampling(_engine, factor);
+  }
+
+  /// Get current native DSP oversampling factor (1, 2, or 4).
+  int getDspOversampling() {
+    if (_engine == ffi.nullptr || _getDspOversampling == null) return 1;
+    return _getDspOversampling(_engine);
   }
 
   /// Enable or disable Auto Sample-Rate Match hardware sample-rate matching.

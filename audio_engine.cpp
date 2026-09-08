@@ -347,28 +347,36 @@ namespace
         float midGain = 1.0f;
         float highGain = 1.0f;
 
-        // 2nd-Order SVF Crossover for up to 8 channels
+        // 2nd-Order SVF Crossover for up to 8 channels with double-precision states
         struct SVF
         {
-            float ic1eq = 0.0f, ic2eq = 0.0f;
-            float a1 = 0.0f, a2 = 0.0f, a3 = 0.0f, k = 0.0f;
-            void set(float cutoff, float sampleRate)
+            double ic1eq = 0.0, ic2eq = 0.0;
+            double a1 = 0.0, a2 = 0.0, a3 = 0.0, k = 0.0;
+            void set(double cutoff, double sampleRate)
             {
-                float g = std::tan(3.14159265358979323846f * cutoff / sampleRate);
-                k = 1.0f / 0.5f; // Linkwitz-Riley-like Q = 0.5 for flat summing
-                a1 = 1.0f / (1.0f + g * (g + k));
+                double g = std::tan(3.14159265358979323846 * cutoff / sampleRate);
+                k = 1.0 / 0.5; // Linkwitz-Riley-like Q = 0.5 for flat summing
+                a1 = 1.0 / (1.0 + g * (g + k));
                 a2 = g * a1;
                 a3 = g * a2;
             }
-            void process(float input, float &lp, float &hp)
+            void process(double input, double &lp, double &hp)
             {
-                float v3 = input - ic2eq;
-                float v1 = a1 * ic1eq + a2 * v3;
-                float v2 = ic2eq + a2 * ic1eq + a3 * v3;
-                ic1eq = 2.0f * v1 - ic1eq;
-                ic2eq = 2.0f * v2 - ic2eq;
+                double v3 = input - ic2eq;
+                double v1 = a1 * ic1eq + a2 * v3;
+                double v2 = ic2eq + a2 * ic1eq + a3 * v3;
+                if (std::fabs(v2) < 1.0e-20) v2 = 0.0;
+                ic1eq = 2.0 * v1 - ic1eq;
+                ic2eq = 2.0 * v2 - ic2eq;
                 lp = v2;
                 hp = input - k * v1 - v2;
+            }
+            void process(float input, float &lp, float &hp)
+            {
+                double lpD, hpD;
+                process(static_cast<double>(input), lpD, hpD);
+                lp = static_cast<float>(lpD);
+                hp = static_cast<float>(hpD);
             }
         };
 
@@ -377,13 +385,13 @@ namespace
 
         void updateCoefficients(int sampleRate)
         {
-            const float lowCut = 250.0f;   // Tighten bass crossover to focus on low punch
-            const float highCut = 2500.0f; // Separate harsh highs from warm mids
+            const double lowCut = 250.0;   // Tighten bass crossover to focus on low punch
+            const double highCut = 2500.0; // Separate harsh highs from warm mids
 
             for (int c = 0; c < 8; ++c)
             {
-                lowCross[c].set(lowCut, (float)sampleRate);
-                highCross[c].set(highCut, (float)sampleRate);
+                lowCross[c].set(lowCut, (double)sampleRate);
+                highCross[c].set(highCut, (double)sampleRate);
             }
         }
 
@@ -409,6 +417,35 @@ namespace
 
                     // Reconstruct with individual gains
                     interleaved[idx] = (low * lowGain) + (mid * midGain) + (high * highGain);
+                }
+            }
+        }
+
+        void process(double *interleaved, ma_uint32 frames, int channels)
+        {
+            const int ch = std::min(channels, 8);
+            const double lg = static_cast<double>(lowGain);
+            const double mg = static_cast<double>(midGain);
+            const double hg = static_cast<double>(highGain);
+
+            for (ma_uint32 i = 0; i < frames; ++i)
+            {
+                for (int c = 0; c < ch; ++c)
+                {
+                    const size_t idx = (size_t)i * (size_t)channels + (size_t)c;
+                    const double x = interleaved[idx];
+
+                    double low, midHigh;
+                    double mid, high;
+
+                    // 1. Split x into Bass (low) and everything else (midHigh)
+                    lowCross[c].process(x, low, midHigh);
+
+                    // 2. Split everything else into Mid and High
+                    highCross[c].process(midHigh, mid, high);
+
+                    // Reconstruct with individual gains
+                    interleaved[idx] = (low * lg) + (mid * mg) + (high * hg);
                 }
             }
         }
@@ -1402,6 +1439,71 @@ namespace
                     {
                         float overshoot = -sample - threshold;
                         sample = -(threshold + (overshoot / (1.0f + (overshoot / (1.0f - threshold)))));
+                    }
+
+                    interleaved[base + (size_t)c] = sample;
+                }
+            }
+        }
+
+        void process(double *interleaved, ma_uint32 frames, int channels)
+        {
+            if (channels < 1)
+                return;
+
+            const double threshD = static_cast<double>(threshold);
+            const double attD = static_cast<double>(attackCoeff);
+            const double relD = static_cast<double>(releaseCoeff);
+
+            for (ma_uint32 i = 0; i < frames; ++i)
+            {
+                // Find peak absolute value across all channels for this frame (linked channels)
+                double peak = 0.0;
+                size_t base = (size_t)i * (size_t)channels;
+                for (int c = 0; c < channels; ++c)
+                {
+                    double absVal = std::abs(interleaved[base + (size_t)c]);
+                    if (absVal > peak)
+                        peak = absVal;
+                }
+
+                // Calculate desired gain
+                double targetGain = 1.0;
+                if (peak > threshD)
+                {
+                    targetGain = threshD / peak;
+                }
+
+                // Smooth the gain matching attack/release
+                double envD = static_cast<double>(gainEnvelope);
+                if (targetGain < envD)
+                {
+                    envD = attD * envD + (1.0 - attD) * targetGain;
+                }
+                else
+                {
+                    envD = relD * envD + (1.0 - relD) * targetGain;
+                }
+                gainEnvelope = static_cast<float>(envD);
+
+                // Apply gain reduction and Analog Soft-Knee Saturation in double precision
+                for (int c = 0; c < channels; ++c)
+                {
+                    double sample = interleaved[base + (size_t)c] * envD;
+
+                    if (sample > 1.0)
+                        sample = 1.0;
+                    else if (sample < -1.0)
+                        sample = -1.0;
+                    else if (sample > threshD)
+                    {
+                        double overshoot = sample - threshD;
+                        sample = threshD + (overshoot / (1.0 + (overshoot / (1.0 - threshD))));
+                    }
+                    else if (sample < -threshD)
+                    {
+                        double overshoot = -sample - threshD;
+                        sample = -(threshD + (overshoot / (1.0 + (overshoot / (1.0 - threshD)))));
                     }
 
                     interleaved[base + (size_t)c] = sample;
@@ -3153,6 +3255,71 @@ static AudioRatePlan calculateRatePlan(
     return plan;
 }
 
+// High-Precision 64-Bit Float Biquad Filter (Audio EQ Cookbook peaking/bell filter)
+// Transposed Direct Form II with double-precision delay states for >320 dB SNR headroom
+struct Biquad64
+{
+    double b0 = 1.0, b1 = 0.0, b2 = 0.0;
+    double a1 = 0.0, a2 = 0.0;
+    double s1[8] = {};
+    double s2[8] = {};
+
+    void reset()
+    {
+        std::fill(s1, s1 + 8, 0.0);
+        std::fill(s2, s2 + 8, 0.0);
+    }
+
+    void initPeak(double sampleRate, double frequency, double gainDb, double q)
+    {
+        if (sampleRate <= 0.0) sampleRate = 48000.0;
+        if (q <= 0.0) q = 1.0;
+        if (frequency <= 0.0) frequency = 1000.0;
+
+        constexpr double PI = 3.14159265358979323846;
+        double w = 2.0 * PI * frequency / sampleRate;
+        if (w > PI * 0.95) w = PI * 0.95;
+        if (w < 1.0e-4) w = 1.0e-4;
+
+        const double s = std::sin(w);
+        const double c = std::cos(w);
+        const double a = s / (2.0 * q);
+        const double A = std::pow(10.0, gainDb / 40.0);
+
+        const double b0_raw = 1.0 + (a * A);
+        const double b1_raw = -2.0 * c;
+        const double b2_raw = 1.0 - (a * A);
+        const double a0_raw = 1.0 + (a / A);
+        const double a1_raw = -2.0 * c;
+        const double a2_raw = 1.0 - (a / A);
+
+        const double invA0 = 1.0 / a0_raw;
+        b0 = b0_raw * invA0;
+        b1 = b1_raw * invA0;
+        b2 = b2_raw * invA0;
+        a1 = a1_raw * invA0;
+        a2 = a2_raw * invA0;
+    }
+
+    void process(double *interleaved, ma_uint32 frames, int channels)
+    {
+        const int ch = std::min(channels, 8);
+        for (ma_uint32 i = 0; i < frames; ++i)
+        {
+            double *frame = interleaved + (size_t)i * (size_t)channels;
+            for (int c = 0; c < ch; ++c)
+            {
+                double in = frame[c];
+                double out = in * b0 + s1[c];
+                if (std::fabs(out) < 1.0e-20) out = 0.0;
+                s1[c] = in * b1 - out * a1 + s2[c];
+                s2[c] = in * b2 - out * a2;
+                frame[c] = out;
+            }
+        }
+    }
+};
+
 struct AudioEngineHandle;
 
 struct AudioEngineHandle
@@ -3161,6 +3328,7 @@ struct AudioEngineHandle
     mutable std::mutex deviceMutex;
     std::atomic<bool> exclusiveModeEnabled{false};
     std::atomic<bool> use64BitProcessing{false};
+    std::atomic<int> dspOversamplingFactor{1};
     std::atomic<bool> autoSampleRateMatchEnabled{false};
     std::atomic<bool> rateTransitionInProgress{false};
     std::atomic<int> userPeriodFrames{0};
@@ -3204,6 +3372,7 @@ struct AudioEngineHandle
     int deviceResamplerCh = 0;
     int deviceResamplerAlgorithm = -1;
     std::vector<float> engineProcessBuffer;
+    std::vector<double> processBuffer64;
 
     int channels = 2;
 
@@ -3404,6 +3573,8 @@ struct AudioEngineHandle
     std::vector<float> eqQ;
     // Each band has one ma_peak2 filter which handles all channels (interleaved)
     std::vector<ma_peak2> eqFilters;
+    // Dedicated 64-bit double precision biquad filters for true float64 DSP mode
+    std::vector<Biquad64> eqFilters64;
 
     struct FxBand
     {
@@ -3456,9 +3627,11 @@ struct AudioEngineHandle
         if (eqBandCount <= 0)
         {
             eqFilters.clear();
+            eqFilters64.clear();
             return;
         }
         eqFilters.resize(eqBandCount);
+        eqFilters64.resize(eqBandCount);
         int sr = (engineSampleRate > 0)
                      ? engineSampleRate
                      : ((deviceSampleRate > 0)
@@ -3478,6 +3651,7 @@ struct AudioEngineHandle
                 eqQ[i],
                 eqFrequencies[i]);
             ma_peak2_init(&config, nullptr, &eqFilters[i]);
+            eqFilters64[i].initPeak((double)sr, (double)eqFrequencies[i], (double)eqGains[i], (double)eqQ[i]);
         }
     }
 
@@ -3491,6 +3665,18 @@ struct AudioEngineHandle
             if (std::abs(eqGains[i]) < 0.005f)
                 continue;
             ma_peak2_process_pcm_frames(&eqFilters[i], frames, frames, (ma_uint64)frameCount);
+        }
+    }
+
+    void process_multiband_eq_64(double *frames, ma_uint32 frameCount, int channels)
+    {
+        const size_t n = std::min(eqFilters64.size(), eqGains.size());
+        for (size_t i = 0; i < n; ++i)
+        {
+            // 0.0 dB flat band bypass: exact unity passthrough with zero biquad calculation
+            if (std::abs(eqGains[i]) < 0.005f)
+                continue;
+            eqFilters64[i].process(frames, frameCount, channels);
         }
     }
 
@@ -5539,12 +5725,26 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             e->crossfadeFramesRemaining.store(fadeRemaining, std::memory_order_relaxed);
         }
 
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-
         const bool use64 = e->use64BitProcessing.load(std::memory_order_relaxed) ||
                            e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
                            (e->outputFormat == AE_FORMAT_S16 || e->outputFormat == AE_FORMAT_S24);
         const size_t totalSamples = (size_t)produced * (size_t)e->channels;
+
+        double *buf64 = nullptr;
+        if (use64)
+        {
+            if (e->processBuffer64.size() < totalSamples)
+            {
+                e->processBuffer64.resize(totalSamples);
+            }
+            buf64 = e->processBuffer64.data();
+            for (size_t i = 0; i < totalSamples; ++i)
+            {
+                buf64[i] = static_cast<double>(processBuffer[i]);
+            }
+        }
+
+        std::lock_guard<std::mutex> fx(e->fxMutex);
 
         // =====================================================================
         // Stage 1: Input Pre-Gain (ReplayGain & Loudness Normalizer Gain)
@@ -5577,10 +5777,9 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             {
                 if (use64)
                 {
+                    const double rg64 = static_cast<double>(rg);
                     for (size_t i = 0; i < totalSamples; ++i)
-                        processBuffer[i] = (float)((double)processBuffer[i] *
-                                                   (double)rg *
-                                                   (double)e->paramNormalizerGain.next());
+                        buf64[i] = buf64[i] * rg64 * static_cast<double>(e->paramNormalizerGain.next());
                 }
                 else
                 {
@@ -5592,9 +5791,9 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             {
                 if (use64)
                 {
-                    const double rg64 = (double)rg;
+                    const double rg64 = static_cast<double>(rg);
                     for (size_t i = 0; i < totalSamples; ++i)
-                        processBuffer[i] = (float)((double)processBuffer[i] * rg64);
+                        buf64[i] *= rg64;
                 }
                 else
                 {
@@ -5629,7 +5828,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                             const double currentVol64 = (double)volBeg + ((double)volEnd - (double)volBeg) * t64;
                             for (int c = 0; c < e->channels; ++c)
                             {
-                                processBuffer[base + (size_t)c] = (float)((double)processBuffer[base + (size_t)c] * currentVol64);
+                                buf64[base + (size_t)c] *= currentVol64;
                             }
                         }
                         else
@@ -5654,52 +5853,67 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             // Subsonic DC / Infrasonic Rumble Clean-Room Filter (18 Hz Butterworth HPF)
             if (e->subsonicFilter.isEnabled())
             {
-                e->subsonicFilter.process(processBuffer, produced, e->channels);
+                if (use64)
+                    e->subsonicFilter.process(buf64, produced, e->channels);
+                else
+                    e->subsonicFilter.process(processBuffer, produced, e->channels);
             }
 
-            if (e->crossfeedEnabled)
+            const bool hasFloatPreFx = e->crossfeedEnabled || e->stereoWidenEnabled ||
+                                       e->stereoEnhancementEnabled || e->crystalizerEnabled || e->reverbEnabled;
+            if (hasFloatPreFx)
             {
-                e->crossfeedNode.process(processBuffer, produced, e->channels);
-            }
-
-            // Stereo Widen
-            if (e->stereoWidenEnabled)
-            {
-                e->stereoWiden.process(processBuffer, produced, e->channels);
-            }
-
-            // JamesDSP Stereo Enhancement
-            if (e->stereoEnhancementEnabled)
-            {
-                e->stereoEnhancement.process(processBuffer, produced, e->channels);
-            }
-
-            // Crystalizer (transient edge reconstruction + air shelf)
-            if (e->crystalizerEnabled)
-            {
-                e->crystalizer.process(processBuffer, produced, e->channels);
-            }
-
-            // Reverb (Freeverb-style FDN)
-            if (e->reverbEnabled)
-            {
-                e->reverbNode.process(processBuffer, produced, e->channels);
+                if (use64)
+                {
+                    for (size_t i = 0; i < totalSamples; ++i) processBuffer[i] = static_cast<float>(buf64[i]);
+                }
+                if (e->crossfeedEnabled)
+                    e->crossfeedNode.process(processBuffer, produced, e->channels);
+                if (e->stereoWidenEnabled)
+                    e->stereoWiden.process(processBuffer, produced, e->channels);
+                if (e->stereoEnhancementEnabled)
+                    e->stereoEnhancement.process(processBuffer, produced, e->channels);
+                if (e->crystalizerEnabled)
+                    e->crystalizer.process(processBuffer, produced, e->channels);
+                if (e->reverbEnabled)
+                    e->reverbNode.process(processBuffer, produced, e->channels);
+                if (use64)
+                {
+                    for (size_t i = 0; i < totalSamples; ++i) buf64[i] = static_cast<double>(processBuffer[i]);
+                }
             }
 
             // Multiband EQ and mixed multiband FX
             std::lock_guard<std::mutex> eqLock(e->eqMutex);
             if (e->multibandEqEnabled)
             {
-                e->process_multiband_eq(processBuffer, produced, e->channels);
+                if (use64)
+                    e->process_multiband_eq_64(buf64, produced, e->channels);
+                else
+                    e->process_multiband_eq(processBuffer, produced, e->channels);
             }
             if (e->multibandFxEnabled)
             {
-                e->process_multiband_fx(processBuffer, produced);
+                if (use64)
+                {
+                    for (size_t i = 0; i < totalSamples; ++i) processBuffer[i] = static_cast<float>(buf64[i]);
+                    e->process_multiband_fx(processBuffer, produced);
+                    for (size_t i = 0; i < totalSamples; ++i) buf64[i] = static_cast<double>(processBuffer[i]);
+                }
+                else
+                {
+                    e->process_multiband_fx(processBuffer, produced);
+                }
             }
 
             // 3-band EQ
             if (e->eqEnabled)
-                e->eq.process(processBuffer, produced, e->channels);
+            {
+                if (use64)
+                    e->eq.process(buf64, produced, e->channels);
+                else
+                    e->eq.process(processBuffer, produced, e->channels);
+            }
 
             // Native Clean-Room Audio DSP Suite.
             // The ae_dsp_set_* setters mutate these objects under dspMutex on the
@@ -5711,6 +5925,10 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 std::unique_lock<std::mutex> dspLock(e->dspMutex, std::try_to_lock);
                 if (dspLock.owns_lock())
                 {
+                    if (use64)
+                    {
+                        for (size_t i = 0; i < totalSamples; ++i) processBuffer[i] = static_cast<float>(buf64[i]);
+                    }
                     e->downwardExpanderDsp.process(processBuffer, produced);
                     e->harmonicBassDsp.process(processBuffer, produced);
                     e->dynamicSystemDsp.process(processBuffer, produced);
@@ -5724,13 +5942,26 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                     }
                     e->fftConvolverDsp.process(processBuffer, produced);
                     e->masterLimiterDsp.process(processBuffer, produced);
+                    if (use64)
+                    {
+                        for (size_t i = 0; i < totalSamples; ++i) buf64[i] = static_cast<double>(processBuffer[i]);
+                    }
                 }
             }
 
             // Dynamic Range Compressor (runs at nominal track level before user master volume)
             if (e->compressorEnabled)
             {
-                e->compressor.process(processBuffer, produced, e->channels, e->engineSampleRate);
+                if (use64)
+                {
+                    for (size_t i = 0; i < totalSamples; ++i) processBuffer[i] = static_cast<float>(buf64[i]);
+                    e->compressor.process(processBuffer, produced, e->channels, e->engineSampleRate);
+                    for (size_t i = 0; i < totalSamples; ++i) buf64[i] = static_cast<double>(processBuffer[i]);
+                }
+                else
+                {
+                    e->compressor.process(processBuffer, produced, e->channels, e->engineSampleRate);
+                }
             }
         } // End of !bypassAppDsp block
 
@@ -5741,6 +5972,11 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         //    and never fights the user's volume knob.
         // 2) FFT visualizer remains lively and dynamic at any volume setting.
         // =====================================================================
+        if (use64)
+        {
+            for (size_t i = 0; i < totalSamples; ++i)
+                processBuffer[i] = static_cast<float>(buf64[i]);
+        }
         if (e->loudnessMeterEnabled.load(std::memory_order_relaxed) ||
             e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed))
         {
@@ -5771,7 +6007,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 if (use64)
                 {
                     for (size_t i = 0; i < totalSamples; ++i)
-                        processBuffer[i] = (float)((double)processBuffer[i] * (double)e->paramUserGain.next());
+                        buf64[i] *= static_cast<double>(e->paramUserGain.next());
                 }
                 else
                 {
@@ -5789,11 +6025,142 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         {
             if (e->lookaheadLimiterEnabled.load(std::memory_order_relaxed))
             {
-                e->lookaheadLimiter.process(processBuffer, produced, e->channels, e->engineSampleRate);
+                if (use64)
+                {
+                    for (size_t i = 0; i < totalSamples; ++i) processBuffer[i] = static_cast<float>(buf64[i]);
+                    e->lookaheadLimiter.process(processBuffer, produced, e->channels, e->engineSampleRate);
+                    for (size_t i = 0; i < totalSamples; ++i) buf64[i] = static_cast<double>(processBuffer[i]);
+                }
+                else
+                {
+                    e->lookaheadLimiter.process(processBuffer, produced, e->channels, e->engineSampleRate);
+                }
             }
             else if (e->limiterEnabled)
             {
-                e->limiter.process(processBuffer, produced, e->channels);
+                if (use64)
+                    e->limiter.process(buf64, produced, e->channels);
+                else
+                    e->limiter.process(processBuffer, produced, e->channels);
+            }
+        }
+
+    // =========================================================================
+    // Stage 5: Monitor & Channel Routing Stage
+    // Balance (Pan), Channel Mute (L/R Trim), Polarity Invert, and L/R Swap.
+    // Executed at output so muting or panning never bleeds through reverb/crossfeed.
+    // =========================================================================
+    {
+        const int ch = (e->channels > 0) ? e->channels : 2;
+        const float panVal = e->pan.load(std::memory_order_relaxed);
+        const float lg = e->channelGainLeft.load(std::memory_order_relaxed);
+        const float rg = e->channelGainRight.load(std::memory_order_relaxed);
+        const bool invL  = e->phaseInvertLeft.load(std::memory_order_relaxed);
+        const bool invR  = e->phaseInvertRight.load(std::memory_order_relaxed);
+        const bool doSwap = e->lrSwapEnabled.load(std::memory_order_relaxed);
+
+        if (use64 && buf64 != nullptr)
+        {
+            // 1. Balance / Pan
+            if (ch >= 2 && panVal != 0.0f)
+            {
+                const double p = static_cast<double>(panVal);
+                const double l = clampd(1.0 - std::max(0.0, p), 0.0, 1.0);
+                const double r = clampd(1.0 + std::min(0.0, p), 0.0, 1.0);
+                for (ma_uint32 i = 0; i < produced; ++i)
+                {
+                    buf64[i * (size_t)ch + 0] *= l;
+                    buf64[i * (size_t)ch + 1] *= r;
+                }
+            }
+
+            // 2. Per-Channel Gain / Channel Mute (independent L and R trim)
+            if (ch >= 2 && (lg != 1.0f || rg != 1.0f))
+            {
+                const double lgD = static_cast<double>(lg);
+                const double rgD = static_cast<double>(rg);
+                for (ma_uint32 i = 0; i < produced; ++i)
+                {
+                    buf64[i * (size_t)ch + 0] *= lgD;
+                    buf64[i * (size_t)ch + 1] *= rgD;
+                }
+            }
+
+            // 3. Polarity Inversion (Phase Flip)
+            if (invL || invR)
+            {
+                for (ma_uint32 i = 0; i < produced; ++i)
+                {
+                    if (invL)
+                        buf64[i * (size_t)ch + 0] = -buf64[i * (size_t)ch + 0];
+                    if (ch > 1 && invR)
+                        buf64[i * (size_t)ch + 1] = -buf64[i * (size_t)ch + 1];
+                }
+            }
+
+            // 4. L/R Swap: exchange left and right output channels
+            if (doSwap && ch >= 2)
+            {
+                for (ma_uint32 i = 0; i < produced; ++i)
+                {
+                    double tmp = buf64[i * (size_t)ch + 0];
+                    buf64[i * (size_t)ch + 0] = buf64[i * (size_t)ch + 1];
+                    buf64[i * (size_t)ch + 1] = tmp;
+                }
+            }
+
+            // Final output back into processBuffer for clipping check, resampling, and DAC delivery
+            for (size_t i = 0; i < totalSamples; ++i)
+            {
+                processBuffer[i] = static_cast<float>(buf64[i]);
+            }
+        }
+        else
+        {
+            // 1. Balance / Pan
+            if (ch >= 2 && panVal != 0.0f)
+            {
+                const float p = panVal;
+                const float l = clampf(1.0f - std::max(0.0f, p), 0.0f, 1.0f);
+                const float r = clampf(1.0f + std::min(0.0f, p), 0.0f, 1.0f);
+                for (ma_uint32 i = 0; i < produced; ++i)
+                {
+                    processBuffer[i * (size_t)ch + 0] *= l;
+                    processBuffer[i * (size_t)ch + 1] *= r;
+                }
+            }
+
+            // 2. Per-Channel Gain / Channel Mute (independent L and R trim)
+            if (ch >= 2 && (lg != 1.0f || rg != 1.0f))
+            {
+                for (ma_uint32 i = 0; i < produced; ++i)
+                {
+                    processBuffer[i * (size_t)ch + 0] = (float)((double)processBuffer[i * (size_t)ch + 0] * (double)lg);
+                    processBuffer[i * (size_t)ch + 1] = (float)((double)processBuffer[i * (size_t)ch + 1] * (double)rg);
+                }
+            }
+
+            // 3. Polarity Inversion (Phase Flip)
+            if (invL || invR)
+            {
+                for (ma_uint32 i = 0; i < produced; ++i)
+                {
+                    if (invL)
+                        processBuffer[i * (size_t)ch + 0] = -processBuffer[i * (size_t)ch + 0];
+                    if (ch > 1 && invR)
+                        processBuffer[i * (size_t)ch + 1] = -processBuffer[i * (size_t)ch + 1];
+                }
+            }
+
+            // 4. L/R Swap: exchange left and right output channels
+            if (doSwap && ch >= 2)
+            {
+                for (ma_uint32 i = 0; i < produced; ++i)
+                {
+                    float tmp = processBuffer[i * (size_t)ch + 0];
+                    processBuffer[i * (size_t)ch + 0] = processBuffer[i * (size_t)ch + 1];
+                    processBuffer[i * (size_t)ch + 1] = tmp;
+                }
             }
         }
 
@@ -5814,66 +6181,6 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             }
         }
     }
-
-    // =========================================================================
-    // Stage 5: Monitor & Channel Routing Stage
-    // Balance (Pan), Channel Mute (L/R Trim), Polarity Invert, and L/R Swap.
-    // Executed at output so muting or panning never bleeds through reverb/crossfeed.
-    // =========================================================================
-    {
-        const int ch = (e->channels > 0) ? e->channels : 2;
-
-        // 1. Balance / Pan
-        const float panVal = e->pan.load(std::memory_order_relaxed);
-        if (ch >= 2 && panVal != 0.0f)
-        {
-            const float p = panVal;
-            const float l = clampf(1.0f - std::max(0.0f, p), 0.0f, 1.0f);
-            const float r = clampf(1.0f + std::min(0.0f, p), 0.0f, 1.0f);
-            for (ma_uint32 i = 0; i < produced; ++i)
-            {
-                processBuffer[i * (size_t)ch + 0] *= l;
-                processBuffer[i * (size_t)ch + 1] *= r;
-            }
-        }
-
-        // 2. Per-Channel Gain / Channel Mute (independent L and R trim)
-        const float lg = e->channelGainLeft.load(std::memory_order_relaxed);
-        const float rg = e->channelGainRight.load(std::memory_order_relaxed);
-        if (ch >= 2 && (lg != 1.0f || rg != 1.0f))
-        {
-            for (ma_uint32 i = 0; i < produced; ++i)
-            {
-                processBuffer[i * (size_t)ch + 0] = (float)((double)processBuffer[i * (size_t)ch + 0] * (double)lg);
-                processBuffer[i * (size_t)ch + 1] = (float)((double)processBuffer[i * (size_t)ch + 1] * (double)rg);
-            }
-        }
-
-        // 3. Polarity Inversion (Phase Flip)
-        const bool invL  = e->phaseInvertLeft.load(std::memory_order_relaxed);
-        const bool invR  = e->phaseInvertRight.load(std::memory_order_relaxed);
-        if (invL || invR)
-        {
-            for (ma_uint32 i = 0; i < produced; ++i)
-            {
-                if (invL)
-                    processBuffer[i * (size_t)ch + 0] = -processBuffer[i * (size_t)ch + 0];
-                if (ch > 1 && invR)
-                    processBuffer[i * (size_t)ch + 1] = -processBuffer[i * (size_t)ch + 1];
-            }
-        }
-
-        // 4. L/R Swap: exchange left and right output channels
-        const bool doSwap = e->lrSwapEnabled.load(std::memory_order_relaxed);
-        if (doSwap && ch >= 2)
-        {
-            for (ma_uint32 i = 0; i < produced; ++i)
-            {
-                float tmp = processBuffer[i * (size_t)ch + 0];
-                processBuffer[i * (size_t)ch + 0] = processBuffer[i * (size_t)ch + 1];
-                processBuffer[i * (size_t)ch + 1] = tmp;
-            }
-        }
     }
 
     // Explicit Engine-to-Device Output Resampling Stage (if engineSampleRate != deviceSampleRate)
@@ -6661,6 +6968,7 @@ extern "C"
         e->conversionBuffer.resize(preallocSamples);
         e->crossfadeMixBuffer.resize(preallocSamples);
         e->engineProcessBuffer.resize(preallocSamples);
+        e->processBuffer64.resize(preallocSamples);
 
         // Initialize advanced settings
         e->outputSampleRate = sample_rate;
@@ -9300,6 +9608,21 @@ extern "C"
         return engine ? (engine->use64BitProcessing.load(std::memory_order_relaxed) ? 1 : 0) : 0;
     }
 
+    AE_API void ae_set_dsp_oversampling(AudioEngineHandle *engine, int factor)
+    {
+        if (!engine)
+            return;
+        if (factor < 1) factor = 1;
+        if (factor > 4) factor = 4;
+        if (factor == 3) factor = 4;
+        engine->dspOversamplingFactor.store(factor, std::memory_order_relaxed);
+    }
+
+    AE_API int ae_get_dsp_oversampling(AudioEngineHandle *engine)
+    {
+        return engine ? engine->dspOversamplingFactor.load(std::memory_order_relaxed) : 1;
+    }
+
     AE_API void ae_set_auto_sample_rate_match_enabled(AudioEngineHandle *engine, int enabled)
     {
         if (!engine)
@@ -9552,6 +9875,11 @@ extern "C"
             if (ma_peak2_reinit(&config, &engine->eqFilters[band_index]) != MA_SUCCESS)
             {
                 ma_peak2_init(&config, nullptr, &engine->eqFilters[band_index]);
+            }
+
+            if (band_index < (int)engine->eqFilters64.size())
+            {
+                engine->eqFilters64[band_index].initPeak((double)sr, (double)engine->eqFrequencies[band_index], (double)gain_db, (double)engine->eqQ[band_index]);
             }
         }
     }
