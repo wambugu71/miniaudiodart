@@ -638,6 +638,10 @@ extern "C"
     AE_API void ae_dsp_set_expander_params_ex(AudioEngineHandle *engine, float threshold_db, float ratio, float range_db, float attack_ms, float release_ms, float knee_db, float sidechain_hpf_hz);
     AE_API float ae_dsp_get_expander_gain_reduction_db(AudioEngineHandle *engine);
 
+    // Subsonic Filter (18 Hz clean-room HPF for DC & turntable/mic rumble removal)
+    AE_API void ae_dsp_set_subsonic_filter_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int  ae_dsp_get_subsonic_filter_enabled(AudioEngineHandle *engine);
+
     // Master DSP Reset
     AE_API void ae_dsp_reset(AudioEngineHandle *engine);
 

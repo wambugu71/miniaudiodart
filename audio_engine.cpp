@@ -3386,14 +3386,13 @@ struct AudioEngineHandle
         float gainDb = 0.0f;
         float slope = 1.0f;
 
-        ma_peak2 peak{};
+        ma_peak2 peak{}; // Handles both Peak and Bell filters
         ma_bpf2 bandpass{};
         ma_notch2 notch{};
         ma_loshelf2 lowshelf{};
         ma_hishelf2 highshelf{};
         ma_lpf2 lowpass{};
         ma_hpf2 highpass{};
-        ma_peak2 bell{};
         ma_loshelf2 tiltLow{};
         ma_hishelf2 tiltHigh{};
     };
@@ -3432,7 +3431,13 @@ struct AudioEngineHandle
             return;
         }
         eqFilters.resize(eqBandCount);
-        int sr = (outputSampleRate > 0) ? outputSampleRate : ((sampleRate > 0) ? sampleRate : 48000);
+        int sr = (engineSampleRate > 0)
+                     ? engineSampleRate
+                     : ((deviceSampleRate > 0)
+                            ? deviceSampleRate
+                            : ((sampleRate > 0)
+                                   ? sampleRate
+                                   : ((outputSampleRate > 0) ? outputSampleRate : 48000)));
         int ch = outputChannels > 0 ? outputChannels : 2;
 
         for (int i = 0; i < eqBandCount; ++i)
@@ -3450,15 +3455,26 @@ struct AudioEngineHandle
 
     void process_multiband_eq(float *frames, ma_uint32 frameCount, int channels)
     {
-        for (auto &filter : eqFilters)
+        (void)channels;
+        const size_t n = std::min(eqFilters.size(), eqGains.size());
+        for (size_t i = 0; i < n; ++i)
         {
-            ma_peak2_process_pcm_frames(&filter, frames, frames, (ma_uint64)frameCount);
+            // 0.0 dB flat band bypass: exact unity passthrough with zero biquad calculation
+            if (std::abs(eqGains[i]) < 0.005f)
+                continue;
+            ma_peak2_process_pcm_frames(&eqFilters[i], frames, frames, (ma_uint64)frameCount);
         }
     }
 
     void update_multiband_fx_filters()
     {
-        const int sr = (outputSampleRate > 0) ? outputSampleRate : ((sampleRate > 0) ? sampleRate : 48000);
+        const int sr = (engineSampleRate > 0)
+                           ? engineSampleRate
+                           : ((deviceSampleRate > 0)
+                                  ? deviceSampleRate
+                                  : ((sampleRate > 0)
+                                         ? sampleRate
+                                         : ((outputSampleRate > 0) ? outputSampleRate : 48000)));
         const int ch = (outputChannels > 0) ? outputChannels : ((channels > 0) ? channels : 2);
         const ma_uint32 sampleRateU32 = (ma_uint32)sr;
         const ma_uint32 channelsU32 = (ma_uint32)ch;
@@ -3545,18 +3561,6 @@ struct AudioEngineHandle
                 (void)ma_hpf2_init(&config, nullptr, &band.highpass);
                 break;
             }
-            case AE_EQ_BAND_BELL:
-            {
-                ma_peak2_config config = ma_peak2_config_init(
-                    ma_format_f32,
-                    channelsU32,
-                    sampleRateU32,
-                    gainDb,
-                    q,
-                    frequencyHz);
-                (void)ma_peak2_init(&config, nullptr, &band.bell);
-                break;
-            }
             case AE_EQ_BAND_TILT:
             {
                 const float halfGain = gainDb * 0.5f;
@@ -3579,9 +3583,11 @@ struct AudioEngineHandle
                 (void)ma_hishelf2_init(&highConfig, nullptr, &band.tiltHigh);
                 break;
             }
+            case AE_EQ_BAND_BELL:
             case AE_EQ_BAND_PEAK:
             default:
             {
+                // Both Bell and Peak filters use identical peaking second-order biquad
                 ma_peak2_config config = ma_peak2_config_init(
                     ma_format_f32,
                     channelsU32,
@@ -3601,6 +3607,13 @@ struct AudioEngineHandle
         for (auto &band : multibandFxBands)
         {
             if (!band.enabled)
+                continue;
+
+            // 0.0 dB flat band bypass: peaking, bell, shelves, and tilt have unity response at 0 dB
+            const bool isGainType = (band.type == AE_EQ_BAND_PEAK || band.type == AE_EQ_BAND_BELL ||
+                                     band.type == AE_EQ_BAND_LOWSHELF || band.type == AE_EQ_BAND_HIGHSHELF ||
+                                     band.type == AE_EQ_BAND_TILT);
+            if (isGainType && std::abs(band.gainDb) < 0.005f)
                 continue;
 
             switch (band.type)
@@ -3623,15 +3636,14 @@ struct AudioEngineHandle
             case AE_EQ_BAND_HIGHPASS:
                 (void)ma_hpf2_process_pcm_frames(&band.highpass, frames, frames, (ma_uint64)frameCount);
                 break;
-            case AE_EQ_BAND_BELL:
-                (void)ma_peak2_process_pcm_frames(&band.bell, frames, frames, (ma_uint64)frameCount);
-                break;
             case AE_EQ_BAND_TILT:
                 (void)ma_loshelf2_process_pcm_frames(&band.tiltLow, frames, frames, (ma_uint64)frameCount);
                 (void)ma_hishelf2_process_pcm_frames(&band.tiltHigh, frames, frames, (ma_uint64)frameCount);
                 break;
+            case AE_EQ_BAND_BELL:
             case AE_EQ_BAND_PEAK:
             default:
+                // Both Bell and Peak filters share band.peak
                 (void)ma_peak2_process_pcm_frames(&band.peak, frames, frames, (ma_uint64)frameCount);
                 break;
             }
@@ -3857,6 +3869,8 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
         e->crossfeed.reset(sr, e->crossfeedPreset);
         e->crystalizer.init(sr);
         e->reverbNode.setSampleRate((double)sr);
+        e->limiter.updateCoefficients(sr);
+        e->loudnessMeter.reset(sr);
     }
 
     {
@@ -5651,7 +5665,10 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             }
 
             // Subsonic DC / Infrasonic Rumble Clean-Room Filter (18 Hz Butterworth HPF)
-            e->subsonicFilter.process(processBuffer, produced, e->channels);
+            if (e->subsonicFilter.isEnabled())
+            {
+                e->subsonicFilter.process(processBuffer, produced, e->channels);
+            }
 
             if (e->crossfeedEnabled)
             {
@@ -8208,7 +8225,13 @@ extern "C"
     {
         if (e == nullptr)
             return;
-        const int sr = (e->outputSampleRate > 0) ? e->outputSampleRate : ((e->sampleRate > 0) ? e->sampleRate : 48000);
+        const int sr = (e->engineSampleRate > 0)
+                           ? e->engineSampleRate
+                           : ((e->deviceSampleRate > 0)
+                                  ? e->deviceSampleRate
+                                  : ((e->sampleRate > 0)
+                                         ? e->sampleRate
+                                         : ((e->outputSampleRate > 0) ? e->outputSampleRate : 48000)));
         std::lock_guard<std::mutex> fx(e->fxMutex);
         e->crystalizer.updateParams(sr, intensity, high_shelf_enabled != 0, high_shelf_gain_db);
     }
@@ -9449,7 +9472,13 @@ extern "C"
         {
             engine->eqGains[band_index] = gain_db;
 
-            int sr = engine->outputSampleRate > 0 ? engine->outputSampleRate : 48000;
+            int sr = (engine->engineSampleRate > 0)
+                         ? engine->engineSampleRate
+                         : ((engine->deviceSampleRate > 0)
+                                ? engine->deviceSampleRate
+                                : ((engine->sampleRate > 0)
+                                       ? engine->sampleRate
+                                       : ((engine->outputSampleRate > 0) ? engine->outputSampleRate : 48000)));
             int ch = engine->outputChannels > 0 ? engine->outputChannels : 2;
 
             ma_peak2_config config = ma_peak2_config_init(
@@ -9460,11 +9489,12 @@ extern "C"
                 engine->eqQ[band_index],
                 engine->eqFrequencies[band_index]);
 
-            // Re-init the filter for this band
-            // This resets internal state (history), which might cause a click.
-            // Ideally we'd update coeffs, but standard miniaudio usage often implies re-init for param changes
-            // unless using lower-level coeff API.
-            ma_peak2_init(&config, nullptr, &engine->eqFilters[band_index]);
+            // Smoothly re-initialize coefficients without clearing delay-line history
+            // (eliminates audio clicks/pops on slider changes).
+            if (ma_peak2_reinit(&config, &engine->eqFilters[band_index]) != MA_SUCCESS)
+            {
+                ma_peak2_init(&config, nullptr, &engine->eqFilters[band_index]);
+            }
         }
     }
 
@@ -10713,6 +10743,19 @@ extern "C"
         engine->masterLimiterDsp.reset();
         engine->surroundDsp.reset();
         engine->subsonicFilter.reset();
+    }
+
+    AE_API void ae_dsp_set_subsonic_filter_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->subsonicFilter.setEnabled(enabled != 0);
+    }
+
+    AE_API int ae_dsp_get_subsonic_filter_enabled(AudioEngineHandle *engine)
+    {
+        if (!engine) return 0;
+        return engine->subsonicFilter.isEnabled() ? 1 : 0;
     }
 
     // Spatial Surround Suite

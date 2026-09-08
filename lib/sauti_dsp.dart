@@ -436,6 +436,8 @@ class SautiDsp {
   late final _DspSetSurroundBinauralParamsDart _setSurroundBinauralParams;
   late final _DspSetSurroundStageParamsDart _setSurroundStageParams;
   late final _DspSetSurroundParamsExDart _setSurroundParamsEx;
+  late final _DspSetEnabledDart _setSubsonicFilterEnabled;
+  late final _DspHasConvolverIrDart _getSubsonicFilterEnabled;
 
   SautiDsp(this._lib, this._enginePtr) {
     _initFunctions();
@@ -576,6 +578,11 @@ class SautiDsp {
         _DspSetSurroundStageParamsDart>('ae_dsp_set_surround_stage_params');
     _setSurroundParamsEx = _lib.lookupFunction<_DspSetSurroundParamsExNative,
         _DspSetSurroundParamsExDart>('ae_dsp_set_surround_params_ex');
+    _setSubsonicFilterEnabled =
+        _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
+            'ae_dsp_set_subsonic_filter_enabled');
+    _getSubsonicFilterEnabled = _lib.lookupFunction<_DspHasConvolverIrNative,
+        _DspHasConvolverIrDart>('ae_dsp_get_subsonic_filter_enabled');
   }
 
   /// Reset all internal DSP buffers and history states.
@@ -1014,5 +1021,17 @@ class SautiDsp {
       surroundDelayMs,
       headRadiusCm,
     );
+  }
+
+  /// Subsonic DC / Infrasonic Rumble Clean-Room Filter (18 Hz Butterworth HPF).
+  void setSubsonicFilterEnabled(bool enabled) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setSubsonicFilterEnabled(_enginePtr, enabled ? 1 : 0);
+  }
+
+  /// Check if the Subsonic Filter is currently active.
+  bool isSubsonicFilterEnabled() {
+    if (_enginePtr == ffi.nullptr) return false;
+    return _getSubsonicFilterEnabled(_enginePtr) != 0;
   }
 }

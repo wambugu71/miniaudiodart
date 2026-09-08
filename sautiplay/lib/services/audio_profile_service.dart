@@ -148,9 +148,11 @@ class AudioProfileService {
       for (final m in rawParametric) {
         if (m is Map) {
           final typeIdx = (m['type'] as num?)?.toInt() ?? 0;
-          final type = (typeIdx >= 0 && typeIdx < EqBandType.values.length)
+          final rawType = (typeIdx >= 0 && typeIdx < EqBandType.values.length)
               ? EqBandType.values[typeIdx]
               : EqBandType.peak;
+          final type =
+              (rawType == EqBandType.bell) ? EqBandType.peak : rawType;
           final freq = (m['frequency'] as num?)?.toDouble() ?? 1000.0;
           final gain = (m['gainDb'] as num?)?.toDouble() ?? 0.0;
           final q = (m['q'] as num?)?.toDouble() ?? 1.2;

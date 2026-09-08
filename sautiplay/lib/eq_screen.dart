@@ -290,9 +290,10 @@ class EqScreen extends StatefulWidget {
     if (parametricEq.bands.isNotEmpty) {
       final pBands = parametricEq.bands.map((m) {
         final typeIdx = (m['type'] as num?)?.toInt() ?? 0;
-        final type = (typeIdx >= 0 && typeIdx < EqBandType.values.length)
+        final rawType = (typeIdx >= 0 && typeIdx < EqBandType.values.length)
             ? EqBandType.values[typeIdx]
             : EqBandType.peak;
+        final type = (rawType == EqBandType.bell) ? EqBandType.peak : rawType;
         return EqBandConfig(
           type: type,
           frequencyHz: (m['frequency'] as num?)?.toDouble() ?? 1000.0,
@@ -1401,9 +1402,10 @@ class _EqScreenState extends State<EqScreen>
         _parametricBands.clear();
         for (final m in parametricEq.bands) {
           final typeIdx = (m['type'] as num?)?.toInt() ?? 0;
-          final type = (typeIdx >= 0 && typeIdx < EqBandType.values.length)
+          final rawType = (typeIdx >= 0 && typeIdx < EqBandType.values.length)
               ? EqBandType.values[typeIdx]
               : EqBandType.peak;
+          final type = (rawType == EqBandType.bell) ? EqBandType.peak : rawType;
           _parametricBands.add(EqBandConfig(
             type: type,
             frequencyHz: (m['frequency'] as num?)?.toDouble() ?? 1000.0,
@@ -4583,9 +4585,11 @@ class _EqScreenState extends State<EqScreen>
             final bands = rawBands.map((m) {
               final map = Map<String, dynamic>.from(m as Map);
               final typeIdx = (map['type'] as num?)?.toInt() ?? 0;
-              final type = (typeIdx >= 0 && typeIdx < EqBandType.values.length)
+              final rawType = (typeIdx >= 0 && typeIdx < EqBandType.values.length)
                   ? EqBandType.values[typeIdx]
                   : EqBandType.peak;
+              final type =
+                  (rawType == EqBandType.bell) ? EqBandType.peak : rawType;
               return EqBandConfig(
                 type: type,
                 frequencyHz: (map['frequency'] as num?)?.toDouble() ?? 1000.0,
@@ -5060,19 +5064,20 @@ class _EqScreenState extends State<EqScreen>
               const SizedBox(height: 8),
               // Type Selector
               _buildM3EDropdown<EqBandType>(
-                value: band.type,
+                value:
+                    band.type == EqBandType.bell ? EqBandType.peak : band.type,
                 items: EqBandType.values
+                    .where((t) => t != EqBandType.bell)
                     .map((t) => M3EDropdownItem<EqBandType>(
                           value: t,
                           label: switch (t) {
-                            EqBandType.peak => 'Peak EQ',
+                            EqBandType.peak || EqBandType.bell => 'Peak / Bell',
                             EqBandType.bandpass => 'Band-Pass',
                             EqBandType.notch => 'Notch',
                             EqBandType.lowshelf => 'Low Shelf',
                             EqBandType.highshelf => 'High Shelf',
                             EqBandType.lowpass => 'Low-Pass',
                             EqBandType.highpass => 'High-Pass',
-                            EqBandType.bell => 'Bell',
                             EqBandType.tilt => 'Tilt',
                           },
                         ))

@@ -387,12 +387,17 @@ class _MixedMultibandFxPageState extends State<MixedMultibandFxPage> {
                               const Text('Type: '),
                               const SizedBox(width: 8),
                               DropdownButton<EqBandType>(
-                                value: b.type,
+                                value: b.type == EqBandType.bell
+                                    ? EqBandType.peak
+                                    : b.type,
                                 items: EqBandType.values
+                                    .where((type) => type != EqBandType.bell)
                                     .map(
                                       (type) => DropdownMenuItem<EqBandType>(
                                         value: type,
-                                        child: Text(type.name),
+                                        child: Text(type == EqBandType.peak
+                                            ? 'Peak / Bell'
+                                            : type.name),
                                       ),
                                     )
                                     .toList(),
