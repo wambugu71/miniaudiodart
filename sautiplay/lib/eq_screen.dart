@@ -2588,7 +2588,7 @@ class _EqScreenState extends State<EqScreen>
             // Section 1: Limiters & Output Protection
             SliverToBoxAdapter(
               child: _buildSectionHeader(
-                'Limiters & Output Protection',
+                'Limiters & Protection',
                 icon: Icons.shield_rounded,
                 trailing: M3EIconButton(
                   icon: const Icon(Icons.refresh_rounded, size: 16),
@@ -2608,7 +2608,7 @@ class _EqScreenState extends State<EqScreen>
                     switch (index) {
                       case 0:
                         _openDetailScreen(
-                          'Look-Ahead True-Peak Limiter',
+                          'Look-Ahead Limiter',
                           Icons.speed_rounded,
                           (_) => _buildLookaheadLimiterSection(),
                           shape: Shapes.sunny,
@@ -2624,7 +2624,7 @@ class _EqScreenState extends State<EqScreen>
                         break;
                       case 2:
                         _openDetailScreen(
-                          'Soft Anti-Clipping Limiter',
+                          'Anti-Clipping Limiter',
                           Icons.compress_rounded,
                           (_) => _buildLimiterSection(),
                           shape: Shapes.diamond,
@@ -2645,9 +2645,9 @@ class _EqScreenState extends State<EqScreen>
                       return _buildEffectTileCard(
                         icon: Icons.speed_rounded,
                         shape: Shapes.sunny,
-                        title: 'Look-Ahead True-Peak Limiter',
+                        title: 'Look-Ahead Limiter',
                         subtitle: _lookaheadLimiterEnabled
-                            ? 'Ceiling: ${_lookaheadLimiterCeilingDBTP.toStringAsFixed(1)} dBTP (0 clipping guaranteed)'
+                            ? 'Ceiling: ${_lookaheadLimiterCeilingDBTP.toStringAsFixed(1)} dBTP'
                             : 'Disabled',
                         isEnabled: _lookaheadLimiterEnabled,
                         onToggle: (v) {
@@ -2655,7 +2655,7 @@ class _EqScreenState extends State<EqScreen>
                           _persistLookaheadLimiterSettings();
                         },
                         onTapDetail: () => _openDetailScreen(
-                          'Look-Ahead True-Peak Limiter',
+                          'Look-Ahead Limiter',
                           Icons.speed_rounded,
                           (_) => _buildLookaheadLimiterSection(),
                           shape: Shapes.sunny,
@@ -2688,7 +2688,7 @@ class _EqScreenState extends State<EqScreen>
                       return _buildEffectTileCard(
                         icon: Icons.compress_rounded,
                         shape: Shapes.diamond,
-                        title: 'Soft Anti-Clipping Limiter',
+                        title: 'Anti-Clipping Limiter',
                         subtitle: _limiterEnabled
                             ? 'Threshold: ${(_limiterThreshold * 100).toInt()}%'
                             : 'Disabled',
@@ -2703,7 +2703,7 @@ class _EqScreenState extends State<EqScreen>
                           _saveEqState();
                         },
                         onTapDetail: () => _openDetailScreen(
-                          'Soft Anti-Clipping Limiter',
+                          'Anti-Clipping Limiter',
                           Icons.compress_rounded,
                           (_) => _buildLimiterSection(),
                           shape: Shapes.diamond,
@@ -2758,7 +2758,7 @@ class _EqScreenState extends State<EqScreen>
                         break;
                       case 1:
                         _openDetailScreen(
-                          'ITU-R BS.1770-4 Loudness Normalizer',
+                          'Loudness Normalizer',
                           Icons.multitrack_audio_rounded,
                           (_) => _buildLoudnessNormalizerSection(),
                           shape: Shapes.pill,
@@ -2805,7 +2805,7 @@ class _EqScreenState extends State<EqScreen>
                           _persistLoudnessNormalizerSettings();
                         },
                         onTapDetail: () => _openDetailScreen(
-                          'ITU-R BS.1770-4 Loudness Normalizer',
+                          'Loudness Normalizer',
                           Icons.multitrack_audio_rounded,
                           (_) => _buildLoudnessNormalizerSection(),
                           shape: Shapes.pill,
@@ -2854,7 +2854,7 @@ class _EqScreenState extends State<EqScreen>
                     switch (index) {
                       case 0:
                         _openDetailScreen(
-                          '${_eqFrequencies.length}-Band Graphic EQ',
+                          'Graphic EQ',
                           Icons.equalizer_rounded,
                           (_) => _buildGraphicEqSection(),
                           shape: Shapes.c4SidedCookie,
@@ -2870,7 +2870,7 @@ class _EqScreenState extends State<EqScreen>
                         break;
                       case 2:
                         _openDetailScreen(
-                          '3-Band Audio Tuning',
+                          'Audio Tuning',
                           Icons.tune_rounded,
                           (_) => _buildAudioTuningSection(),
                           shape: Shapes.pill,
@@ -2892,7 +2892,7 @@ class _EqScreenState extends State<EqScreen>
                         showcaseKey: widget.effectsKnobKey ?? GlobalKey(),
                         title: 'Knob Controls',
                         description:
-                            'Drag knobs to adjust EQ. Tip: Long-press any knob to edit values directly with your keyboard!',
+                            'Drag knobs to adjust EQ. Tip: Tap/Long-press any knob to edit values directly with your keyboard!',
                         currentStep: 4,
                         totalSteps: 5,
                         child: _buildEffectTileCard(
@@ -2909,7 +2909,7 @@ class _EqScreenState extends State<EqScreen>
                             _saveEqState();
                           },
                           onTapDetail: () => _openDetailScreen(
-                            '${_eqFrequencies.length}-Band Graphic EQ',
+                            'Graphic EQ',
                             Icons.equalizer_rounded,
                             (_) => _buildGraphicEqSection(),
                             shape: Shapes.c4SidedCookie,
@@ -2966,7 +2966,7 @@ class _EqScreenState extends State<EqScreen>
                       return _buildEffectTileCard(
                         icon: Icons.tune_rounded,
                         shape: Shapes.pill,
-                        title: '3-Band Audio Tuning',
+                        title: 'Audio Tuning',
                         subtitle: _audioTuningEnabled
                             ? 'Low: ${_tuneLow.toInt()}dB | Mid: ${_tuneMid.toInt()}dB | High: ${_tuneHigh.toInt()}dB'
                             : 'Disabled',
@@ -2977,7 +2977,7 @@ class _EqScreenState extends State<EqScreen>
                           _saveEqState();
                         },
                         onTapDetail: () => _openDetailScreen(
-                          '3-Band Audio Tuning',
+                          'Audio Tuning',
                           Icons.tune_rounded,
                           (_) => _buildAudioTuningSection(),
                           shape: Shapes.pill,
@@ -3138,7 +3138,7 @@ class _EqScreenState extends State<EqScreen>
                         break;
                       case 4:
                         _openDetailScreen(
-                          'Downward Expander',
+                          'Expander',
                           Icons.cleaning_services_rounded,
                           (_) => _buildDownwardExpanderSection(),
                           shape: Shapes.flower,
@@ -3238,7 +3238,7 @@ class _EqScreenState extends State<EqScreen>
                     return _buildEffectTileCard(
                       icon: Icons.cleaning_services_rounded,
                       shape: Shapes.flower,
-                      title: 'Downward Expander',
+                      title: 'Expander',
                       subtitle: _expanderEnabled
                           ? '${_getExpanderPresetName(_expanderPreset)} (${_expanderThresholdDb.toInt()} dB / ${_expanderRatio.toStringAsFixed(1)}:1)'
                           : 'Disabled',
@@ -3249,7 +3249,7 @@ class _EqScreenState extends State<EqScreen>
                         _saveEqState();
                       },
                       onTapDetail: () => _openDetailScreen(
-                        'Downward Expander',
+                        'Expander',
                         Icons.cleaning_services_rounded,
                         (_) => _buildDownwardExpanderSection(),
                         shape: Shapes.flower,
@@ -3322,7 +3322,7 @@ class _EqScreenState extends State<EqScreen>
                                         ? 'Jan Meier'
                                         : _crossfeedAlgorithmIndex == 4
                                             ? 'Custom Natural'
-                                            : 'Ambiophonics RACE (Speakers / Dipole XTC)')
+                                            : 'Ambiophonics')
                             : 'Disabled',
                         isEnabled: _crossfeedEnabled,
                         onToggle: (v) {
@@ -3547,8 +3547,6 @@ class _EqScreenState extends State<EqScreen>
                 ),
               ),
             ),
-
-
 
             // Bottom Spacing for floating player / nav
             const SliverToBoxAdapter(
@@ -3942,7 +3940,7 @@ class _EqScreenState extends State<EqScreen>
               border: Border.all(color: const Color(0x4000C9B1)),
             ),
             child: Text(
-              'Recovers transient detail & "air" lost in compressed audio',
+              'Recovers transient detail lost in compressed audio',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.6),
                 fontSize: 11,
@@ -4049,7 +4047,7 @@ class _EqScreenState extends State<EqScreen>
         //  ),
       ),
       title: 'Crossfeed',
-      subtitle: 'Simulate natural acoustic speaker listening',
+      subtitle: 'Simulate natural speaker listening',
       isEnabled: _crossfeedEnabled,
       onToggle: (v) {
         setState(() => _crossfeedEnabled = v);
@@ -4070,15 +4068,11 @@ class _EqScreenState extends State<EqScreen>
               child: _buildM3EDropdown<int>(
                 value: _crossfeedAlgorithmIndex,
                 items: const [
-                  M3EDropdownItem(
-                      label: 'Simple Reference (Headphones)', value: 1),
-                  M3EDropdownItem(label: 'Bauer BS2B (Headphones)', value: 2),
-                  M3EDropdownItem(label: 'Jan Meier (Headphones)', value: 3),
-                  M3EDropdownItem(
-                      label: 'Custom Natural (Headphones)', value: 4),
-                  M3EDropdownItem(
-                      label: 'Ambiophonics RACE (Speakers / Dipole XTC)',
-                      value: 5),
+                  M3EDropdownItem(label: 'Simple Reference', value: 1),
+                  M3EDropdownItem(label: 'Bauer BS2B ', value: 2),
+                  M3EDropdownItem(label: 'Jan Meier', value: 3),
+                  M3EDropdownItem(label: 'Custom Natural', value: 4),
+                  M3EDropdownItem(label: 'Ambiophonics', value: 5),
                 ],
                 onChanged: (val) {
                   setState(() {
@@ -4189,7 +4183,7 @@ class _EqScreenState extends State<EqScreen>
                       ),
                       const SizedBox(width: 8),
                       const Text(
-                        'Output Loudness Compensation',
+                        'Loudness Compensation',
                         style: TextStyle(color: Colors.white, fontSize: 13),
                       ),
                     ],
@@ -4208,31 +4202,6 @@ class _EqScreenState extends State<EqScreen>
             ),
           ),
         ] else if (_crossfeedAlgorithmIndex == 5) ...[
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: primaryColor.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: primaryColor.withValues(alpha: 0.2)),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.speaker_group_outlined,
-                    size: 18, color: primaryColor),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Loudspeaker Crosstalk Elimination.',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.75),
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
           const SizedBox(height: 10),
           RepaintBoundary(
             child: RaceSoundstageVisualizer(
@@ -4314,7 +4283,7 @@ class _EqScreenState extends State<EqScreen>
         // ),
       ),
       title: 'Stereo Widener',
-      subtitle: 'Mid/Side matrix & Haas effect width expansion',
+      subtitle: 'Mid/Side & Haas effect width expansion',
       isEnabled: _stereoWidenEnabled,
       onToggle: (v) {
         setState(() => _stereoWidenEnabled = v);
@@ -4707,9 +4676,10 @@ class _EqScreenState extends State<EqScreen>
             final bands = rawBands.map((m) {
               final map = Map<String, dynamic>.from(m as Map);
               final typeIdx = (map['type'] as num?)?.toInt() ?? 0;
-              final rawType = (typeIdx >= 0 && typeIdx < EqBandType.values.length)
-                  ? EqBandType.values[typeIdx]
-                  : EqBandType.peak;
+              final rawType =
+                  (typeIdx >= 0 && typeIdx < EqBandType.values.length)
+                      ? EqBandType.values[typeIdx]
+                      : EqBandType.peak;
               final type =
                   (rawType == EqBandType.bell) ? EqBandType.peak : rawType;
               return EqBandConfig(
@@ -5854,7 +5824,7 @@ class _EqScreenState extends State<EqScreen>
         child: Icon(Icons.headphones_rounded, color: primaryColor, size: 20),
       ),
       title: 'Dynamic System',
-      subtitle: 'Multi-Band Acoustic Simulation',
+      subtitle: 'Multi-Band Bass Simulation',
       isEnabled: _dynamicSystemEnabled,
       onToggle: (v) {
         setState(() => _dynamicSystemEnabled = v);
@@ -5934,7 +5904,7 @@ class _EqScreenState extends State<EqScreen>
         child: Icon(Icons.graphic_eq_rounded, color: primaryColor, size: 20),
       ),
       title: 'Clarity',
-      subtitle: 'Crisp details, vocal presence',
+      subtitle: 'Crisp details',
       isEnabled: _clarityEnabled,
       onToggle: (v) {
         setState(() => _clarityEnabled = v);
@@ -7661,9 +7631,8 @@ class _EqScreenState extends State<EqScreen>
       icon: Center(
         child: Icon(Icons.speed_rounded, color: primaryColor, size: 20),
       ),
-      title: 'Look-Ahead True-Peak Limiter',
-      subtitle:
-          '2ms look-ahead inter-sample peak protection (0 clipping guaranteed)',
+      title: 'Look-Ahead Limiter',
+      subtitle: '2ms look-ahead protection',
       isEnabled: _lookaheadLimiterEnabled,
       onToggle: (v) {
         setState(() => _lookaheadLimiterEnabled = v);
@@ -7708,17 +7677,6 @@ class _EqScreenState extends State<EqScreen>
           ],
         ),
         const SizedBox(height: 12),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4.0),
-          child: Text(
-            'Guarantees zero inter-sample clipping by analyzing 2ms ahead in the buffer. Ideal for lossless audiophile playback.',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.4),
-              fontSize: 11.5,
-              height: 1.3,
-            ),
-          ),
-        ),
       ],
     );
   }
@@ -7729,9 +7687,8 @@ class _EqScreenState extends State<EqScreen>
       icon: Center(
         child: Icon(Icons.volume_up_rounded, color: primaryColor, size: 20),
       ),
-      title: 'Preamp Gain',
-      subtitle:
-          'Master digital pre-amplification trim applied before EQ & DSP processing',
+      title: 'Preamp',
+      subtitle: 'Master pre-amp',
       isEnabled: hasGain,
       children: [
         Row(
@@ -7780,17 +7737,6 @@ class _EqScreenState extends State<EqScreen>
           ],
         ),
         const SizedBox(height: 12),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4.0),
-          child: Text(
-            'Trim overall input headroom to avoid clipping when applying heavy EQ boosts, or boost low-level recordings.',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.4),
-              fontSize: 11.5,
-              height: 1.3,
-            ),
-          ),
-        ),
       ],
     );
   }
@@ -7798,11 +7744,11 @@ class _EqScreenState extends State<EqScreen>
   Widget _buildLoudnessNormalizerSection() {
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.multitrack_audio_rounded,
-            color: primaryColor, size: 20),
+        child:
+            Icon(Icons.multitrack_audio_rounded, color: primaryColor, size: 20),
       ),
-      title: 'ITU-R BS.1770-4 Loudness Normalizer',
-      subtitle: 'Real-time EBU R128 K-weighted loudness matching',
+      title: 'Loudness Normalizer',
+      subtitle: 'EBU R128 K-weighted loudness matching',
       isEnabled: _loudnessNormalizerEnabled,
       onToggle: (v) {
         setState(() => _loudnessNormalizerEnabled = v);
@@ -7835,10 +7781,10 @@ class _EqScreenState extends State<EqScreen>
           alignment: WrapAlignment.center,
           children: [
             for (final target in [
-              (-14.0, 'Spotify / YouTube (-14 LUFS)'),
-              (-16.0, 'Apple Music (-16 LUFS)'),
-              (-23.0, 'EBU R128 (-23 LUFS)'),
-              (-24.0, 'ATSC A/85 (-24 LUFS)'),
+              (-14.0, '-14 LUFS'),
+              (-16.0, '-16 LUFS'),
+              (-23.0, '-23 LUFS'),
+              (-24.0, '-24 LUFS'),
             ])
               M3EChip(
                 label: target.$2,
@@ -7853,17 +7799,6 @@ class _EqScreenState extends State<EqScreen>
           ],
         ),
         const SizedBox(height: 12),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4.0),
-          child: Text(
-            'Matches perceived loudness dynamically using the international standard EBU R128 K-weighted filter.',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.4),
-              fontSize: 11.5,
-              height: 1.3,
-            ),
-          ),
-        ),
       ],
     );
   }
@@ -7873,9 +7808,8 @@ class _EqScreenState extends State<EqScreen>
       icon: Center(
         child: Icon(Icons.equalizer_rounded, color: primaryColor, size: 20),
       ),
-      title: 'ReplayGain Metadata Normalization',
-      subtitle:
-          'Automatic volume matching using embedded track/album loudness tags',
+      title: 'ReplayGain',
+      subtitle: 'Automatic volume matching',
       isEnabled: _replayGainMode != ReplayGainMode.none,
       onToggle: (v) {
         setState(() {
@@ -7929,17 +7863,6 @@ class _EqScreenState extends State<EqScreen>
           ],
         ),
         const SizedBox(height: 12),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4.0),
-          child: Text(
-            'Track mode normalizes every song individually. Album mode preserves dynamic differences between songs on the same record.',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.4),
-              fontSize: 11.5,
-              height: 1.3,
-            ),
-          ),
-        ),
       ],
     );
   }
@@ -7949,8 +7872,8 @@ class _EqScreenState extends State<EqScreen>
       icon: Center(
         child: Icon(Icons.shield_rounded, color: primaryColor, size: 20),
       ),
-      title: 'Master Peak Limiter',
-      subtitle: 'Lookahead true-peak brickwall limiting & loudness booster',
+      title: 'Peak Limiter',
+      subtitle: 'Lookahead brickwall limiting',
       isEnabled: _masterLimiterEnabled,
       onToggle: (v) {
         setState(() => _masterLimiterEnabled = v);
@@ -8038,7 +7961,7 @@ class _EqScreenState extends State<EqScreen>
         //),
       ),
       title: 'Soft Limiter',
-      subtitle: 'True-peak limiting & anti-clipping dynamics processor',
+      subtitle: 'Anti-clipping protection',
       isEnabled: _limiterEnabled,
       onToggle: (v) {
         setState(() => _limiterEnabled = v);

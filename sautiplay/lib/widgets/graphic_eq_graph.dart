@@ -368,7 +368,8 @@ class _InteractiveGraphicEqPainter extends CustomPainter {
     }
 
     // 8. Draw Frequency Labels at the Bottom
-    _drawFrequencyLabels(canvas, points, bandCount, graphHeight);
+    _drawFrequencyLabels(
+        canvas, size, points, bandCount, graphWidth, graphHeight);
   }
 
   void _drawGrid(Canvas canvas, double paddingLeft, double paddingTop,
@@ -411,37 +412,107 @@ class _InteractiveGraphicEqPainter extends CustomPainter {
     }
   }
 
-  void _drawFrequencyLabels(Canvas canvas, List<Offset> points, int bandCount,
-      double graphHeight) {
-    final labelStyle = TextStyle(
-      color: Colors.white.withValues(alpha: 0.55),
-      fontSize: bandCount > 16 ? 8.0 : 9.5,
-      fontWeight: FontWeight.w500,
-      fontFamily: 'monospace',
-    );
+  void _drawFrequencyLabels(Canvas canvas, Size size, List<Offset> points,
+      int bandCount, double graphWidth, double graphHeight) {
+    if (bandCount == 0) return;
 
-    // For 32 bands, skip every other label so they don't collide
-    final step = bandCount > 16 ? 2 : 1;
+    // 1. Dynamically determine label decimation step based on band count & width
+    int step = 1;
+    if (bandCount > 16) {
+      // 32 bands: show every 4th band on mobile (~8-9 labels), every 2nd on wide displays
+      step = graphWidth < 600 ? 4 : 2;
+    } else if (bandCount > 10) {
+      // 16 bands: show every 2nd band on mobile (~8 labels), every 1st on wide displays
+      step = graphWidth < 500 ? 2 : 1;
+    } else {
+      // 10 bands: show all bands unless screen is extremely narrow
+      step = graphWidth < 260 ? 2 : 1;
+    }
 
+    // 2. Build candidate indices ensuring first and last boundaries are represented
+    final candidateIndices = <int>[];
     for (int i = 0; i < bandCount; i += step) {
-      final f = frequencies[i];
-      String label;
+      candidateIndices.add(i);
+    }
+    if (bandCount > 1 && !candidateIndices.contains(bandCount - 1)) {
+      final lastIdx = bandCount - 1;
+      final prevIdx = candidateIndices.last;
+      if (lastIdx - prevIdx <= 1) {
+        // If last band is only 1 band away from the previous candidate, substitute it
+        candidateIndices[candidateIndices.length - 1] = lastIdx;
+      } else {
+        candidateIndices.add(lastIdx);
+      }
+    }
+
+    final candidateSet = candidateIndices.toSet();
+    final yAxis = paddingTop + graphHeight;
+
+    // 3. Draw subtle hardware-style ticks along the baseline for every band
+    final majorTickPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.28)
+      ..strokeWidth = 1.0;
+    final minorTickPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.10)
+      ..strokeWidth = 1.0;
+
+    for (int i = 0; i < bandCount; i++) {
+      final x = points[i].dx;
+      if (candidateSet.contains(i)) {
+        canvas.drawLine(
+            Offset(x, yAxis), Offset(x, yAxis + 3.0), majorTickPaint);
+      } else {
+        canvas.drawLine(
+            Offset(x, yAxis), Offset(x, yAxis + 1.5), minorTickPaint);
+      }
+    }
+
+    // 4. Helper for clean frequency formatting
+    String formatFreq(double f) {
       if (f >= 1000) {
         final khz = f / 1000;
-        label = khz % 1 == 0 ? '${khz.toInt()}k' : '${khz.toStringAsFixed(1)}k';
+        return khz % 1 == 0
+            ? '${khz.toInt()}k'
+            : '${khz.toStringAsFixed(khz >= 10 ? 0 : 1)}k';
       } else {
-        label = '${f.toInt()}';
+        return f % 1 == 0 ? '${f.toInt()}' : f.toStringAsFixed(1);
       }
+    }
+
+    // 5. Paint labels with collision guard and active band highlighting
+    double lastRightEdge = -double.infinity;
+    final yText = yAxis + 5.5;
+
+    for (final i in candidateIndices) {
+      final f = frequencies[i];
+      final label = formatFreq(f);
+      final isActive = i == activeBandIndex;
 
       final tp = TextPainter(
-        text: TextSpan(text: label, style: labelStyle),
+        text: TextSpan(
+          text: label,
+          style: TextStyle(
+            color: isActive
+                ? primaryColor
+                : Colors.white.withValues(alpha: isEnabled ? 0.6 : 0.25),
+            fontSize: 9.0,
+            fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
+            fontFamily: 'monospace',
+          ),
+        ),
         textDirection: TextDirection.ltr,
       )..layout();
 
       final x = points[i].dx - tp.width / 2.0;
-      final y = paddingTop + graphHeight + 6.0;
+      final clampedX = x.clamp(2.0, size.width - tp.width - 2.0);
 
-      tp.paint(canvas, Offset(x, y));
+      // Overlap protection: ensure at least 6px clearance
+      if (clampedX < lastRightEdge + 6.0) {
+        continue;
+      }
+
+      tp.paint(canvas, Offset(clampedX, yText));
+      lastRightEdge = clampedX + tp.width;
     }
   }
 
