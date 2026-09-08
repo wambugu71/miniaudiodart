@@ -5541,25 +5541,24 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
         std::lock_guard<std::mutex> fx(e->fxMutex);
 
-        // Master Volume & Gain Stage (user gain × replay gain × loudness-normalizer gain)
-        // Computed in 64-bit float (double precision) so that low-volume listening
-        // preserves dynamic range before the downstream TPDF/noise-shaped dither stage.
+        const bool use64 = e->use64BitProcessing.load(std::memory_order_relaxed) ||
+                           e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
+                           (e->outputFormat == AE_FORMAT_S16 || e->outputFormat == AE_FORMAT_S24);
+        const size_t totalSamples = (size_t)produced * (size_t)e->channels;
+
+        // =====================================================================
+        // Stage 1: Input Pre-Gain (ReplayGain & Loudness Normalizer Gain)
+        // Establishes nominal target programme loudness (e.g. -14 LUFS) BEFORE
+        // filters, tone EQs, and threshold-dependent dynamic processors.
+        // Master user volume is intentionally NOT applied here so that lowering
+        // listening volume never starves downstream compressors/gates or breaks
+        // loudness normalization.
+        // =====================================================================
         {
-            const bool use64 = e->use64BitProcessing.load(std::memory_order_relaxed) ||
-                               e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
-                               (e->outputFormat == AE_FORMAT_S16 || e->outputFormat == AE_FORMAT_S24);
             const bool crossfadeMixing = e->isCrossfading.load(std::memory_order_relaxed) &&
                                          e->loudnessCrossfadeEnabled.load(std::memory_order_relaxed);
             const float rg = crossfadeMixing ? 1.0f : e->replayGainLinear.load(std::memory_order_relaxed);
 
-            // User master gain rides AutomatedParamFloat so UI volume
-            // changes ramp smoothly instead of stepping block-wise.
-            e->paramUserGain.setTarget(e->gain.load(std::memory_order_relaxed));
-
-            // Loudness Normalizer: rides output gain toward the user target
-            // (BS.1770 integrated LUFS). Bypassed during loudness-aware
-            // crossfade mixing, where per-track ReplayGains already align
-            // loudness; AutomatedParamFloat re-ramps it smoothly afterwards.
             float normTarget = 1.0f;
             if (!crossfadeMixing &&
                 e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed))
@@ -5567,21 +5566,12 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 normTarget = e->loudnessMeter.getNormalizerGainLinear();
             }
             e->paramNormalizerGain.setTarget(normTarget);
-            // next() is consumed per sample below, so ramp over the full
-            // sample count to keep the smoothing-time semantics correct.
-            const size_t totalSamples = (size_t)produced * (size_t)e->channels;
-            e->paramUserGain.prepareBlock((ma_uint32)totalSamples,
-                                          e->parameterSmoothingMs.load(std::memory_order_relaxed),
-                                          e->sampleRate);
             e->paramNormalizerGain.prepareBlock((ma_uint32)totalSamples,
                                                 e->parameterSmoothingMs.load(std::memory_order_relaxed),
                                                 e->sampleRate);
 
             const bool normActive = std::fabs(e->paramNormalizerGain.current - 1.0f) > 1e-4f ||
                                     std::fabs(normTarget - 1.0f) > 1e-4f;
-            const float userGainTarget = e->paramUserGain.getTarget();
-            const bool userGainActive = std::fabs(e->paramUserGain.current - userGainTarget) > 1e-6f ||
-                                        std::fabs(userGainTarget - 1.0f) > 1e-6f;
 
             if (normActive)
             {
@@ -5589,29 +5579,13 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 {
                     for (size_t i = 0; i < totalSamples; ++i)
                         processBuffer[i] = (float)((double)processBuffer[i] *
-                                                   (double)e->paramUserGain.next() *
                                                    (double)rg *
                                                    (double)e->paramNormalizerGain.next());
                 }
                 else
                 {
                     for (size_t i = 0; i < totalSamples; ++i)
-                        processBuffer[i] *= e->paramUserGain.next() * rg * e->paramNormalizerGain.next();
-                }
-            }
-            else if (userGainActive)
-            {
-                if (use64)
-                {
-                    for (size_t i = 0; i < totalSamples; ++i)
-                        processBuffer[i] = (float)((double)processBuffer[i] *
-                                                   (double)e->paramUserGain.next() *
-                                                   (double)rg);
-                }
-                else
-                {
-                    for (size_t i = 0; i < totalSamples; ++i)
-                        processBuffer[i] *= e->paramUserGain.next() * rg;
+                        processBuffer[i] *= rg * e->paramNormalizerGain.next();
                 }
             }
             else if (rg != 1.0f)
@@ -5630,27 +5604,11 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             }
         }
 
-        // Per-Channel Gain (L/R independent trim)
-        {
-            const float lg = e->channelGainLeft.load(std::memory_order_relaxed);
-            const float rg = e->channelGainRight.load(std::memory_order_relaxed);
-            if (e->channels >= 2 && (lg != 1.0f || rg != 1.0f))
-            {
-                for (ma_uint32 i = 0; i < produced; ++i)
-                {
-                    processBuffer[i * (size_t)e->channels + 0] = (float)((double)processBuffer[i * (size_t)e->channels + 0] * (double)lg);
-                    processBuffer[i * (size_t)e->channels + 1] = (float)((double)processBuffer[i * (size_t)e->channels + 1] * (double)rg);
-                }
-            }
-        }
-
         const bool bypassAppDsp = e->exclusiveModeEnabled.load(std::memory_order_relaxed) &&
                                  !e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed);
 
         if (!bypassAppDsp)
         {
-            const bool use64 = e->use64BitProcessing.load(std::memory_order_relaxed);
-
             // Custom Fading (Wait Fade)
             if (e->customFadeArmed.load(std::memory_order_acquire))
             {
@@ -5689,34 +5647,6 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                     if (fadeRemaining == 0)
                     {
                         e->customFadeArmed.store(false, std::memory_order_release);
-                    }
-                }
-            }
-
-            // Pan (Assume Stereo or more)
-            const float panVal = e->pan.load(std::memory_order_relaxed);
-            if (e->channels >= 2 && panVal != 0.0f)
-            {
-                if (use64)
-                {
-                    const double p = (double)panVal;
-                    const double l = clampd(1.0 - std::max(0.0, p), 0.0, 1.0);
-                    const double r = clampd(1.0 + std::min(0.0, p), 0.0, 1.0);
-                    for (ma_uint32 i = 0; i < produced; ++i)
-                    {
-                        processBuffer[i * e->channels]     = (float)((double)processBuffer[i * e->channels] * l);
-                        processBuffer[i * e->channels + 1] = (float)((double)processBuffer[i * e->channels + 1] * r);
-                    }
-                }
-                else
-                {
-                    const float p = panVal;
-                    const float l = clampf(1.0f - std::max(0.0f, p), 0.0f, 1.0f);
-                    const float r = clampf(1.0f + std::min(0.0f, p), 0.0f, 1.0f);
-                    for (ma_uint32 i = 0; i < produced; ++i)
-                    {
-                        processBuffer[i * e->channels]     *= l;
-                        processBuffer[i * e->channels + 1] *= r;
                     }
                 }
             }
@@ -5797,26 +5727,20 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 }
             }
 
-            // Dynamic Range Compressor (runs before the limiters so they catch overshoot)
+            // Dynamic Range Compressor (runs at nominal track level before user master volume)
             if (e->compressorEnabled)
             {
                 e->compressor.process(processBuffer, produced, e->channels, e->engineSampleRate);
             }
-
-            // Limiter & Clipping Detection (run at the end of the chain before format conversion)
-            if (e->lookaheadLimiterEnabled.load(std::memory_order_relaxed))
-            {
-                e->lookaheadLimiter.process(processBuffer, produced, e->channels, e->engineSampleRate);
-            }
-            else if (e->limiterEnabled)
-            {
-                e->limiter.process(processBuffer, produced, e->channels);
-            }
         } // End of !bypassAppDsp block
 
-        // Read-only Metering Subsystems (Post-DSP / Pre-Output)
-        // The BS.1770 meter also feeds the Loudness Normalizer, so it must run
-        // whenever the normalizer is enabled even if the meter UI toggle is off.
+        // =====================================================================
+        // Stage 2: Read-only Metering Subsystems & Visualizer Snapshots (Post-DSP / Pre-Master Volume)
+        // Measuring on post-DSP nominal stream ensures:
+        // 1) BS.1770 LUFS meter measures the track's true programme loudness
+        //    and never fights the user's volume knob.
+        // 2) FFT visualizer remains lively and dynamic at any volume setting.
+        // =====================================================================
         if (e->loudnessMeterEnabled.load(std::memory_order_relaxed) ||
             e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed))
         {
@@ -5828,6 +5752,50 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         }
 
         e->capture_analyzer_frames(processBuffer, produced, e->channels);
+
+        // =====================================================================
+        // Stage 3: Master Volume Stage (User Master Gain Fader)
+        // Applied in 64-bit float precision with automated de-zippering / ramping.
+        // =====================================================================
+        {
+            e->paramUserGain.setTarget(e->gain.load(std::memory_order_relaxed));
+            e->paramUserGain.prepareBlock((ma_uint32)totalSamples,
+                                          e->parameterSmoothingMs.load(std::memory_order_relaxed),
+                                          e->sampleRate);
+            const float userGainTarget = e->paramUserGain.getTarget();
+            const bool userGainActive = std::fabs(e->paramUserGain.current - userGainTarget) > 1e-6f ||
+                                        std::fabs(userGainTarget - 1.0f) > 1e-6f;
+
+            if (userGainActive)
+            {
+                if (use64)
+                {
+                    for (size_t i = 0; i < totalSamples; ++i)
+                        processBuffer[i] = (float)((double)processBuffer[i] * (double)e->paramUserGain.next());
+                }
+                else
+                {
+                    for (size_t i = 0; i < totalSamples; ++i)
+                        processBuffer[i] *= e->paramUserGain.next();
+                }
+            }
+        }
+
+        // =====================================================================
+        // Stage 4: Brickwall Safety Limiter & Clipping Detection
+        // Catches user volume boosts (> 1.0) or hot transients before DAC.
+        // =====================================================================
+        if (!bypassAppDsp)
+        {
+            if (e->lookaheadLimiterEnabled.load(std::memory_order_relaxed))
+            {
+                e->lookaheadLimiter.process(processBuffer, produced, e->channels, e->engineSampleRate);
+            }
+            else if (e->limiterEnabled)
+            {
+                e->limiter.process(processBuffer, produced, e->channels);
+            }
+        }
 
         if (e->clippingDetectionEnabled.load(std::memory_order_relaxed))
         {
@@ -5847,12 +5815,43 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         }
     }
 
-    // Phase Inversion (Polarity Flip) + L/R Swap - applied to output frames
+    // =========================================================================
+    // Stage 5: Monitor & Channel Routing Stage
+    // Balance (Pan), Channel Mute (L/R Trim), Polarity Invert, and L/R Swap.
+    // Executed at output so muting or panning never bleeds through reverb/crossfeed.
+    // =========================================================================
     {
+        const int ch = (e->channels > 0) ? e->channels : 2;
+
+        // 1. Balance / Pan
+        const float panVal = e->pan.load(std::memory_order_relaxed);
+        if (ch >= 2 && panVal != 0.0f)
+        {
+            const float p = panVal;
+            const float l = clampf(1.0f - std::max(0.0f, p), 0.0f, 1.0f);
+            const float r = clampf(1.0f + std::min(0.0f, p), 0.0f, 1.0f);
+            for (ma_uint32 i = 0; i < produced; ++i)
+            {
+                processBuffer[i * (size_t)ch + 0] *= l;
+                processBuffer[i * (size_t)ch + 1] *= r;
+            }
+        }
+
+        // 2. Per-Channel Gain / Channel Mute (independent L and R trim)
+        const float lg = e->channelGainLeft.load(std::memory_order_relaxed);
+        const float rg = e->channelGainRight.load(std::memory_order_relaxed);
+        if (ch >= 2 && (lg != 1.0f || rg != 1.0f))
+        {
+            for (ma_uint32 i = 0; i < produced; ++i)
+            {
+                processBuffer[i * (size_t)ch + 0] = (float)((double)processBuffer[i * (size_t)ch + 0] * (double)lg);
+                processBuffer[i * (size_t)ch + 1] = (float)((double)processBuffer[i * (size_t)ch + 1] * (double)rg);
+            }
+        }
+
+        // 3. Polarity Inversion (Phase Flip)
         const bool invL  = e->phaseInvertLeft.load(std::memory_order_relaxed);
         const bool invR  = e->phaseInvertRight.load(std::memory_order_relaxed);
-        const bool doSwap = e->lrSwapEnabled.load(std::memory_order_relaxed);
-        const int ch = (e->channels > 0) ? e->channels : 2;
         if (invL || invR)
         {
             for (ma_uint32 i = 0; i < produced; ++i)
@@ -5863,7 +5862,9 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                     processBuffer[i * (size_t)ch + 1] = -processBuffer[i * (size_t)ch + 1];
             }
         }
-        // L/R Swap: exchange left and right channels (applied after polarity so they compose correctly)
+
+        // 4. L/R Swap: exchange left and right output channels
+        const bool doSwap = e->lrSwapEnabled.load(std::memory_order_relaxed);
         if (doSwap && ch >= 2)
         {
             for (ma_uint32 i = 0; i < produced; ++i)

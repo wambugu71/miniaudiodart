@@ -140,10 +140,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _ditherMode = 0;
   int _eqBandCount = 10;
 
-  // ReplayGain
-  ReplayGainMode _replayGainMode = ReplayGainMode.none;
-  double _replayGainPreamp = 0.0;
-
   // DSP Oversampling
   int _dspOversampling = 1;
 
@@ -178,12 +174,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // Loudness-Aware Crossfade
   bool _loudnessCrossfadeEnabled = true;
-
-  // Release 1 Quality Foundation
-  bool _loudnessNormalizerEnabled = true;
-  double _loudnessNormalizerTargetLUFS = -14.0;
-  bool _lookaheadLimiterEnabled = true;
-  double _lookaheadLimiterCeilingDBTP = -1.0;
 
   // Waveform & Slider Seek Bar UI Settings
   bool _useWaveformSeekBar = false;
@@ -307,7 +297,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadUiSettings() async {
     final saved = await AppStateService.instance.loadUiSettings();
     final eqSaved = await AppStateService.instance.loadEqBands();
-    final rgSaved = await AppStateService.instance.loadReplayGainSettings();
     final oversamplingSaved =
         await AppStateService.instance.loadDspOversampling();
     final spSaved = await AppStateService.instance.loadSpeakerProtection();
@@ -350,8 +339,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _resampleAlgorithm = saved.resampleAlgorithm;
       _ditherMode = saved.ditherMode;
       _eqBandCount = eqSaved.bandCount;
-      _replayGainMode = rgSaved.mode;
-      _replayGainPreamp = rgSaved.preamp;
       _dspOversampling = oversamplingSaved;
       _speakerProtectionEnabled = spSaved.enabled;
       _subsonicCutoffHz = spSaved.subsonicCutoffHz;
@@ -376,23 +363,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await AppStateService.instance.loadLoudnessNormalizer();
     final lookaheadLim = await AppStateService.instance.loadLookaheadLimiter();
 
-    if (mounted) {
-      setState(() {
-        _loudnessNormalizerEnabled = loudnessNorm.enabled;
-        _loudnessNormalizerTargetLUFS = loudnessNorm.targetLUFS;
-        _lookaheadLimiterEnabled = lookaheadLim.enabled;
-        _lookaheadLimiterCeilingDBTP = lookaheadLim.ceilingDBTP;
-      });
-    }
-
     widget.player.set64BitProcessingEnabled(is64Bit);
     widget.player.setAutoSampleRateMatchEnabled(autoBp);
     widget.player.setLoudnessCrossfadeEnabled(loudnessCf);
-    widget.player.setLoudnessNormalizerEnabled(_loudnessNormalizerEnabled);
-    widget.player.setLoudnessNormalizerTarget(_loudnessNormalizerTargetLUFS);
-    widget.player.setLookaheadLimiterEnabled(_lookaheadLimiterEnabled);
+    widget.player.setLoudnessNormalizerEnabled(loudnessNorm.enabled);
+    widget.player.setLoudnessNormalizerTarget(loudnessNorm.targetLUFS);
+    widget.player.setLookaheadLimiterEnabled(lookaheadLim.enabled);
     widget.player
-        .setLookaheadLimiterParams(ceilingDBTP: _lookaheadLimiterCeilingDBTP);
+        .setLookaheadLimiterParams(ceilingDBTP: lookaheadLim.ceilingDBTP);
     widget.player.setPhaseInversion(
       invertLeft: _phaseInvertLeft,
       invertRight: _phaseInvertRight,
@@ -423,24 +401,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  void _persistLoudnessNormalizerSettings() {
-    AppStateService.instance.saveLoudnessNormalizer(
-      enabled: _loudnessNormalizerEnabled,
-      targetLUFS: _loudnessNormalizerTargetLUFS,
-    );
-    widget.player.setLoudnessNormalizerEnabled(_loudnessNormalizerEnabled);
-    widget.player.setLoudnessNormalizerTarget(_loudnessNormalizerTargetLUFS);
-  }
-
-  void _persistLookaheadLimiterSettings() {
-    AppStateService.instance.saveLookaheadLimiter(
-      enabled: _lookaheadLimiterEnabled,
-      ceilingDBTP: _lookaheadLimiterCeilingDBTP,
-    );
-    widget.player.setLookaheadLimiterEnabled(_lookaheadLimiterEnabled);
-    widget.player
-        .setLookaheadLimiterParams(ceilingDBTP: _lookaheadLimiterCeilingDBTP);
-  }
 
   void _persistPhaseInversionSettings() {
     AppStateService.instance.savePhaseInversion(
@@ -487,13 +447,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _persistReplayGainSettings() {
-    AppStateService.instance.saveReplayGainSettings(
-      mode: _replayGainMode,
-      preamp: _replayGainPreamp,
-    );
-    setState(() {});
-  }
 
   void _persistUiSettings() {
     AppStateService.instance.saveUiSettings(
@@ -624,7 +577,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 return _buildCategoryCard(
                                   title: 'Audio & Processing',
                                   subtitle:
-                                      'Resampling, Bit depth, Safeguards & ReplayGain',
+                                      'Resampling, Bit depth & Hardware Safeguards',
                                   icon: Icons.graphic_eq_rounded,
                                   accentColor: _primary,
                                   badgeText: _getAudioProcessingBadgeText(),
@@ -2097,190 +2050,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                 ],
-                const M3EDivider(),
-                _buildM3ESwitchTile(
-                  title: 'Look-Ahead True-Peak Limiter',
-                  subtitle:
-                      '2ms look-ahead inter-sample peak protection (0 clipping guaranteed)',
-                  secondary: _buildLeadingIcon(Icons.speed_rounded),
-                  value: _lookaheadLimiterEnabled,
-                  onChanged: (val) {
-                    setState(() => _lookaheadLimiterEnabled = val);
-                    setSubState(() {});
-                    _persistLookaheadLimiterSettings();
-                  },
-                ),
-                if (_lookaheadLimiterEnabled) ...[
-                  const M3EDivider(),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 16),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('True-Peak Ceiling (dBTP)',
-                                  style: TextStyle(
-                                      color: _textPrimary,
-                                      fontWeight: FontWeight.w500)),
-                              const SizedBox(height: 2),
-                              Text(
-                                'Max output peak ceiling (${_lookaheadLimiterCeilingDBTP.toStringAsFixed(1)} dBTP)',
-                                style:
-                                    TextStyle(color: _textDark, fontSize: 12),
-                              ),
-                            ],
-                          ),
-                        ),
-                        SizedBox(
-                          width: 90,
-                          child: ModernAudioKnob(
-                            label: 'CEILING',
-                            value: _lookaheadLimiterCeilingDBTP,
-                            min: -6.0,
-                            max: 0.0,
-                            activeColor: _primary,
-                            valueFormatter: (v) =>
-                                '${v.toStringAsFixed(1)} dBTP',
-                            onChanged: (val) {
-                              setState(
-                                  () => _lookaheadLimiterCeilingDBTP = val);
-                              setSubState(() {});
-                              _persistLookaheadLimiterSettings();
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-            ),
-            const SizedBox(height: 20),
-            _buildSectionHeader('REPLAYGAIN & LOUDNESS'),
-            const SizedBox(height: 8),
-            _buildCardContainer(
-              children: [
-                _buildM3ESwitchTile(
-                  title: 'ITU-R BS.1770-4 Loudness Normalizer',
-                  subtitle: 'Real-time EBU R128 K-weighted loudness matching',
-                  secondary: _buildLeadingIcon(Icons.multitrack_audio_rounded),
-                  value: _loudnessNormalizerEnabled,
-                  onChanged: (val) {
-                    setState(() => _loudnessNormalizerEnabled = val);
-                    setSubState(() {});
-                    _persistLoudnessNormalizerSettings();
-                  },
-                ),
-                if (_loudnessNormalizerEnabled) ...[
-                  const M3EDivider(),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 16),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Target Loudness (LUFS)',
-                                  style: TextStyle(
-                                      color: _textPrimary,
-                                      fontWeight: FontWeight.w500)),
-                              const SizedBox(height: 2),
-                              Text(
-                                'Target integrated loudness (${_loudnessNormalizerTargetLUFS.toStringAsFixed(1)} LUFS)',
-                                style:
-                                    TextStyle(color: _textDark, fontSize: 12),
-                              ),
-                            ],
-                          ),
-                        ),
-                        SizedBox(
-                          width: 90,
-                          child: ModernAudioKnob(
-                            label: 'TARGET',
-                            value: _loudnessNormalizerTargetLUFS,
-                            min: -24.0,
-                            max: -8.0,
-                            activeColor: _primary,
-                            valueFormatter: (v) =>
-                                '${v.toStringAsFixed(1)} LUFS',
-                            onChanged: (val) {
-                              setState(
-                                  () => _loudnessNormalizerTargetLUFS = val);
-                              setSubState(() {});
-                              _persistLoudnessNormalizerSettings();
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-                const M3EDivider(),
-                M3EListItem(
-                  headline: 'ReplayGain Mode',
-                  leading: _buildLeadingIcon(Icons.equalizer),
-                  trailing: SizedBox(
-                    width: 150,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            _replayGainMode == ReplayGainMode.none
-                                ? 'None'
-                                : _replayGainMode == ReplayGainMode.track
-                                    ? 'Track'
-                                    : 'Album',
-                            style: TextStyle(color: _textDark, fontSize: 13),
-                            textAlign: TextAlign.right,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Icon(Icons.chevron_right, color: _textDark, size: 20),
-                      ],
-                    ),
-                  ),
-                  onTap: () => _showReplayGainModeDialog(
-                      onDone: () => setSubState(() {})),
-                ),
-                const M3EDivider(),
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Preamp Gain',
-                        style: TextStyle(
-                            color: _textPrimary, fontWeight: FontWeight.w500),
-                      ),
-                      SizedBox(
-                        width: 90,
-                        child: ModernAudioKnob(
-                          label: 'GAIN',
-                          value: _replayGainPreamp,
-                          min: -15.0,
-                          max: 15.0,
-                          activeColor: _primary,
-                          valueFormatter: (v) =>
-                              '${v > 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
-                          onChanged: (val) {
-                            setState(() => _replayGainPreamp = val);
-                            setSubState(() {});
-                            _persistReplayGainSettings();
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
               ],
             ),
           ],
@@ -4887,61 +4656,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Future<void> _showReplayGainModeDialog({VoidCallback? onDone}) async {
-    final modes = [
-      (ReplayGainMode.none, 'None', 'Disable automatic loudness normalization'),
-      (ReplayGainMode.track, 'Track', 'Normalize per-track volume matching'),
-      (
-        ReplayGainMode.album,
-        'Album',
-        'Preserve album dynamics & relative track volume'
-      ),
-    ];
-    return M3EBottomSheet.show<void>(
-      context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'ReplayGain Mode',
-          subtitle: 'Select loudness metadata normalization target',
-          child: M3ECardList(
-            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-            gap: 6.0,
-            outerRadius: 20.0,
-            innerRadius: 6.0,
-            itemCount: modes.length,
-            onTap: (index) {
-              final mode = modes[index].$1;
-              setState(() => _replayGainMode = mode);
-              _persistReplayGainSettings();
-              onDone?.call();
-              Navigator.pop(context);
-            },
-            itemBuilder: (context, index) {
-              final mode = modes[index];
-              final isSelected = mode.$1 == _replayGainMode;
-              return M3EListItem(
-                headline: mode.$2,
-                supportingText: mode.$3,
-                selected: isSelected,
-                trailing: M3ERadio<ReplayGainMode>(
-                  value: mode.$1,
-                  groupValue: _replayGainMode,
-                  onChanged: (val) {
-                    setState(() => _replayGainMode = val);
-                    _persistReplayGainSettings();
-                    onDone?.call();
-                    Navigator.pop(context);
-                  },
-                ),
-              );
-            },
-          ),
-        ),
-      ),
-    );
-  }
 
   String _getDitherModeName(int mode) {
     switch (mode) {

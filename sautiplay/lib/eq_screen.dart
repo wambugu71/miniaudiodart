@@ -748,8 +748,21 @@ class _EqScreenState extends State<EqScreen>
   double _tuneMid = 0.0;
   double _tuneHigh = 0.0;
 
-  // Preamp
-  double _preampDb = 0.0; // Simulated gain offset
+  // Preamp & Input Gain
+  double _preampDb = 0.0; // Master pre-amplification trim
+
+  // Look-Ahead True-Peak Limiter
+  bool _lookaheadLimiterEnabled = true;
+  double _lookaheadLimiterCeilingDBTP = -1.0;
+
+  // ITU-R BS.1770-4 Loudness Normalizer
+  bool _loudnessNormalizerEnabled = true;
+  double _loudnessNormalizerTargetLUFS = -14.0;
+
+  // ReplayGain Metadata Normalization
+  ReplayGainMode _replayGainMode = ReplayGainMode.none;
+  double _replayGainPreamp = 0.0;
+
   // Subscriptions
   StreamSubscription<void>? _eqSettingsSub;
 
@@ -1104,12 +1117,24 @@ class _EqScreenState extends State<EqScreen>
     final tuning = await AppStateService.instance.loadAudioTuning();
     final limiter = await AppStateService.instance.loadLimiter();
     final compressor = await AppStateService.instance.loadCompressor();
+    final lookaheadLim = await AppStateService.instance.loadLookaheadLimiter();
+    final loudnessNorm =
+        await AppStateService.instance.loadLoudnessNormalizer();
+    final rgSaved = await AppStateService.instance.loadReplayGainSettings();
 
     setState(() {
       _showWarningBanner = !hideBanner;
       _playbackRate = rate;
       _playbackPitch = pitch;
       _playbackPitchCorrection = pitchCorrection;
+
+      // Look-Ahead Limiter, Loudness Normalizer & ReplayGain
+      _lookaheadLimiterEnabled = lookaheadLim.enabled;
+      _lookaheadLimiterCeilingDBTP = lookaheadLim.ceilingDBTP;
+      _loudnessNormalizerEnabled = loudnessNorm.enabled;
+      _loudnessNormalizerTargetLUFS = loudnessNorm.targetLUFS;
+      _replayGainMode = rgSaved.mode;
+      _replayGainPreamp = rgSaved.preamp;
 
       // EQ bands
       _masterEqEnabled = eqBands.enabled;
@@ -1376,6 +1401,12 @@ class _EqScreenState extends State<EqScreen>
       widget.player.setEqEnabled(true);
       widget.player.setEq(low: _tuneLow, mid: _tuneMid, high: _tuneHigh);
     }
+    widget.player.setLookaheadLimiterEnabled(_lookaheadLimiterEnabled);
+    widget.player
+        .setLookaheadLimiterParams(ceilingDBTP: _lookaheadLimiterCeilingDBTP);
+    widget.player.setLoudnessNormalizerEnabled(_loudnessNormalizerEnabled);
+    widget.player.setLoudnessNormalizerTarget(_loudnessNormalizerTargetLUFS);
+
     if (_limiterEnabled) {
       _applyLimiter();
     }
@@ -1740,6 +1771,35 @@ class _EqScreenState extends State<EqScreen>
   void _applyStoredPreamp() {
     final gain = math.pow(10, _preampDb / 20).toDouble();
     widget.player.setGain(gain);
+  }
+
+  void _persistLookaheadLimiterSettings() {
+    AppStateService.instance.saveLookaheadLimiter(
+      enabled: _lookaheadLimiterEnabled,
+      ceilingDBTP: _lookaheadLimiterCeilingDBTP,
+    );
+    widget.player.setLookaheadLimiterEnabled(_lookaheadLimiterEnabled);
+    widget.player
+        .setLookaheadLimiterParams(ceilingDBTP: _lookaheadLimiterCeilingDBTP);
+    _subScreenSetState?.call(() {});
+  }
+
+  void _persistLoudnessNormalizerSettings() {
+    AppStateService.instance.saveLoudnessNormalizer(
+      enabled: _loudnessNormalizerEnabled,
+      targetLUFS: _loudnessNormalizerTargetLUFS,
+    );
+    widget.player.setLoudnessNormalizerEnabled(_loudnessNormalizerEnabled);
+    widget.player.setLoudnessNormalizerTarget(_loudnessNormalizerTargetLUFS);
+    _subScreenSetState?.call(() {});
+  }
+
+  void _persistReplayGainSettings() {
+    AppStateService.instance.saveReplayGainSettings(
+      mode: _replayGainMode,
+      preamp: _replayGainPreamp,
+    );
+    _subScreenSetState?.call(() {});
   }
 
   /// Saves all current EQ and Sauti DSP state to persistent storage.
@@ -2166,12 +2226,22 @@ class _EqScreenState extends State<EqScreen>
       _masterLimiterOutputGainDb = 0.0;
       _masterLimiterReleaseMs = 60.0;
       widget.player.setMasterLimiter(enabled: false);
+
+      _lookaheadLimiterEnabled = true;
+      _lookaheadLimiterCeilingDBTP = -1.0;
+      _loudnessNormalizerEnabled = true;
+      _loudnessNormalizerTargetLUFS = -14.0;
+      _replayGainMode = ReplayGainMode.none;
+      _replayGainPreamp = 0.0;
     });
     // Persist the reset state
+    _persistLookaheadLimiterSettings();
+    _persistLoudnessNormalizerSettings();
+    _persistReplayGainSettings();
     _saveEqState();
   }
 
-  Widget _buildSectionHeader(String title, {IconData? icon}) {
+  Widget _buildSectionHeader(String title, {IconData? icon, Widget? trailing}) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
       child: Row(
@@ -2196,6 +2266,10 @@ class _EqScreenState extends State<EqScreen>
               color: primaryColor.withValues(alpha: 0.15),
             ),
           ),
+          if (trailing != null) ...[
+            const SizedBox(width: 8),
+            trailing,
+          ],
         ],
       ),
     );
@@ -2511,7 +2585,261 @@ class _EqScreenState extends State<EqScreen>
                 ),
               ),
 
-            // Section 1: Equalization & Tuning
+            // Section 1: Limiters & Output Protection
+            SliverToBoxAdapter(
+              child: _buildSectionHeader(
+                'Limiters & Output Protection',
+                icon: Icons.shield_rounded,
+                trailing: M3EIconButton(
+                  icon: const Icon(Icons.refresh_rounded, size: 16),
+                  variant: M3EIconButtonVariant.tonal,
+                  tooltip: 'Reset All Effects',
+                  onPressed: _resetAll,
+                ),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: M3ECardList(
+                  itemCount: 4,
+                  onTap: (index) {
+                    switch (index) {
+                      case 0:
+                        _openDetailScreen(
+                          'Look-Ahead True-Peak Limiter',
+                          Icons.speed_rounded,
+                          (_) => _buildLookaheadLimiterSection(),
+                          shape: Shapes.sunny,
+                        );
+                        break;
+                      case 1:
+                        _openDetailScreen(
+                          'Master Peak Limiter',
+                          Icons.shield_rounded,
+                          (_) => _buildMasterLimiterSection(),
+                          shape: Shapes.square,
+                        );
+                        break;
+                      case 2:
+                        _openDetailScreen(
+                          'Soft Anti-Clipping Limiter',
+                          Icons.compress_rounded,
+                          (_) => _buildLimiterSection(),
+                          shape: Shapes.diamond,
+                        );
+                        break;
+                      case 3:
+                        _openDetailScreen(
+                          'Compressor',
+                          Icons.tune_rounded,
+                          (_) => _buildCompressorSection(),
+                          shape: Shapes.burst,
+                        );
+                        break;
+                    }
+                  },
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
+                      return _buildEffectTileCard(
+                        icon: Icons.speed_rounded,
+                        shape: Shapes.sunny,
+                        title: 'Look-Ahead True-Peak Limiter',
+                        subtitle: _lookaheadLimiterEnabled
+                            ? 'Ceiling: ${_lookaheadLimiterCeilingDBTP.toStringAsFixed(1)} dBTP (0 clipping guaranteed)'
+                            : 'Disabled',
+                        isEnabled: _lookaheadLimiterEnabled,
+                        onToggle: (v) {
+                          setState(() => _lookaheadLimiterEnabled = v);
+                          _persistLookaheadLimiterSettings();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          'Look-Ahead True-Peak Limiter',
+                          Icons.speed_rounded,
+                          (_) => _buildLookaheadLimiterSection(),
+                          shape: Shapes.sunny,
+                        ),
+                      );
+                    }
+                    if (index == 1) {
+                      return _buildEffectTileCard(
+                        icon: Icons.shield_rounded,
+                        shape: Shapes.square,
+                        title: 'Master Peak Limiter',
+                        subtitle: _masterLimiterEnabled
+                            ? 'Ceiling: ${_masterLimiterCeilingDb.toStringAsFixed(1)} dBFS'
+                            : 'Disabled',
+                        isEnabled: _masterLimiterEnabled,
+                        onToggle: (v) {
+                          setState(() => _masterLimiterEnabled = v);
+                          _updateMasterLimiter();
+                          _saveEqState();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          'Master Peak Limiter',
+                          Icons.shield_rounded,
+                          (_) => _buildMasterLimiterSection(),
+                          shape: Shapes.square,
+                        ),
+                      );
+                    }
+                    if (index == 2) {
+                      return _buildEffectTileCard(
+                        icon: Icons.compress_rounded,
+                        shape: Shapes.diamond,
+                        title: 'Soft Anti-Clipping Limiter',
+                        subtitle: _limiterEnabled
+                            ? 'Threshold: ${(_limiterThreshold * 100).toInt()}%'
+                            : 'Disabled',
+                        isEnabled: _limiterEnabled,
+                        onToggle: (v) {
+                          setState(() => _limiterEnabled = v);
+                          if (v) {
+                            _applyLimiter();
+                          } else {
+                            widget.player.setLimiterEnabled(false);
+                          }
+                          _saveEqState();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          'Soft Anti-Clipping Limiter',
+                          Icons.compress_rounded,
+                          (_) => _buildLimiterSection(),
+                          shape: Shapes.diamond,
+                        ),
+                      );
+                    }
+                    return _buildEffectTileCard(
+                      icon: Icons.tune_rounded,
+                      shape: Shapes.burst,
+                      title: 'Compressor',
+                      subtitle: _compressorEnabled
+                          ? '$_compressorPreset · ${_compressorThresholdDb.toInt()} dB / ${_compressorRatio.toStringAsFixed(1)}:1'
+                          : 'Disabled',
+                      isEnabled: _compressorEnabled,
+                      onToggle: (v) {
+                        setState(() => _compressorEnabled = v);
+                        _updateCompressor();
+                        _saveEqState();
+                      },
+                      onTapDetail: () => _openDetailScreen(
+                        'Compressor',
+                        Icons.tune_rounded,
+                        (_) => _buildCompressorSection(),
+                        shape: Shapes.burst,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+
+            // Section 2: Preamp & Loudness
+            SliverToBoxAdapter(
+              child: _buildSectionHeader('Preamp & Loudness',
+                  icon: Icons.multitrack_audio_rounded),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: M3ECardList(
+                  itemCount: 3,
+                  onTap: (index) {
+                    switch (index) {
+                      case 0:
+                        _openDetailScreen(
+                          'Preamp Gain',
+                          Icons.volume_up_rounded,
+                          (_) => _buildPreampSection(),
+                          shape: Shapes.circle,
+                        );
+                        break;
+                      case 1:
+                        _openDetailScreen(
+                          'ITU-R BS.1770-4 Loudness Normalizer',
+                          Icons.multitrack_audio_rounded,
+                          (_) => _buildLoudnessNormalizerSection(),
+                          shape: Shapes.pill,
+                        );
+                        break;
+                      case 2:
+                        _openDetailScreen(
+                          'ReplayGain Metadata',
+                          Icons.equalizer_rounded,
+                          (_) => _buildReplayGainSection(),
+                          shape: Shapes.c4SidedCookie,
+                        );
+                        break;
+                    }
+                  },
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
+                      return _buildEffectTileCard(
+                        icon: Icons.volume_up_rounded,
+                        shape: Shapes.circle,
+                        title: 'Preamp Gain',
+                        subtitle:
+                            'Master input gain: ${_preampDb > 0 ? '+' : ''}${_preampDb.toStringAsFixed(1)} dB',
+                        isEnabled: _preampDb != 0.0,
+                        onTapDetail: () => _openDetailScreen(
+                          'Preamp Gain',
+                          Icons.volume_up_rounded,
+                          (_) => _buildPreampSection(),
+                          shape: Shapes.circle,
+                        ),
+                      );
+                    }
+                    if (index == 1) {
+                      return _buildEffectTileCard(
+                        icon: Icons.multitrack_audio_rounded,
+                        shape: Shapes.pill,
+                        title: 'Loudness Normalizer',
+                        subtitle: _loudnessNormalizerEnabled
+                            ? 'EBU R128 · Target: ${_loudnessNormalizerTargetLUFS.toStringAsFixed(1)} LUFS'
+                            : 'Disabled',
+                        isEnabled: _loudnessNormalizerEnabled,
+                        onToggle: (v) {
+                          setState(() => _loudnessNormalizerEnabled = v);
+                          _persistLoudnessNormalizerSettings();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          'ITU-R BS.1770-4 Loudness Normalizer',
+                          Icons.multitrack_audio_rounded,
+                          (_) => _buildLoudnessNormalizerSection(),
+                          shape: Shapes.pill,
+                        ),
+                      );
+                    }
+                    return _buildEffectTileCard(
+                      icon: Icons.equalizer_rounded,
+                      shape: Shapes.c4SidedCookie,
+                      title: 'ReplayGain Metadata',
+                      subtitle: _replayGainMode == ReplayGainMode.none
+                          ? 'Disabled'
+                          : '${_replayGainMode.name.toUpperCase()} · ${_replayGainPreamp > 0 ? '+' : ''}${_replayGainPreamp.toStringAsFixed(1)} dB',
+                      isEnabled: _replayGainMode != ReplayGainMode.none,
+                      onToggle: (v) {
+                        setState(() {
+                          _replayGainMode =
+                              v ? ReplayGainMode.track : ReplayGainMode.none;
+                        });
+                        _persistReplayGainSettings();
+                      },
+                      onTapDetail: () => _openDetailScreen(
+                        'ReplayGain Metadata',
+                        Icons.equalizer_rounded,
+                        (_) => _buildReplayGainSection(),
+                        shape: Shapes.c4SidedCookie,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+
+            // Section 3: Equalization & Tuning
             SliverToBoxAdapter(
               child: _buildSectionHeader('Equalization & Tuning',
                   icon: Icons.equalizer_rounded),
@@ -2681,7 +3009,7 @@ class _EqScreenState extends State<EqScreen>
               ),
             ),
 
-            // Section 2: Bass & Subwoofer Engine
+            // Section 4: Bass & Subwoofer Engine
             SliverToBoxAdapter(
               child: _buildSectionHeader('Bass Engine',
                   icon: Icons.speaker_group_rounded),
@@ -2741,7 +3069,7 @@ class _EqScreenState extends State<EqScreen>
                     return _buildEffectTileCard(
                       icon: Icons.headphones_rounded,
                       shape: Shapes.burst,
-                      title: 'Dynamic system',
+                      title: 'Dynamic System',
                       subtitle: _dynamicSystemEnabled
                           ? '${_getTransducerProfileName(_dynamicSystemProfile)} (${(_dynamicSystemStrength * 100).toInt()}%)'
                           : 'Disabled',
@@ -2763,7 +3091,7 @@ class _EqScreenState extends State<EqScreen>
               ),
             ),
 
-            // Section 3: Clarity & Dynamics
+            // Section 5: Clarity & Dynamics
             SliverToBoxAdapter(
               child: _buildSectionHeader('Clarity & Dynamics',
                   icon: Icons.auto_awesome),
@@ -2932,7 +3260,7 @@ class _EqScreenState extends State<EqScreen>
               ),
             ),
 
-            // Section 4: Spatial & Analog Warmth
+            // Section 6: Spatial & Analog Warmth
             SliverToBoxAdapter(
               child: _buildSectionHeader('Spatial & Analog Warmth',
                   icon: Icons.headphones_rounded),
@@ -3091,7 +3419,7 @@ class _EqScreenState extends State<EqScreen>
               ),
             ),
 
-            // Section 5: Acoustic Space, Convolver & Surround
+            // Section 7: Acoustic Space, Convolver & Surround
             SliverToBoxAdapter(
               child: _buildSectionHeader('Convolver & Surround',
                   icon: Icons.waves_rounded),
@@ -3175,7 +3503,7 @@ class _EqScreenState extends State<EqScreen>
               ),
             ),
 
-            // Section 6: Reverb
+            // Section 8: Reverb
             SliverToBoxAdapter(
               child: _buildSectionHeader('Reverb',
                   icon: Icons.wb_twilight_rounded),
@@ -3220,118 +3548,7 @@ class _EqScreenState extends State<EqScreen>
               ),
             ),
 
-            // Section 7: Master Dynamics & Protection
-            SliverToBoxAdapter(
-              child: _buildSectionHeader('Master Dynamics & Protection',
-                  icon: Icons.shield_rounded),
-            ),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                child: M3ECardList(
-                  itemCount: 3,
-                  onTap: (index) {
-                    switch (index) {
-                      case 0:
-                        _openDetailScreen(
-                          'Compressor',
-                          Icons.tune_rounded,
-                          (_) => _buildCompressorSection(),
-                          shape: Shapes.burst,
-                        );
-                        break;
-                      case 1:
-                        _openDetailScreen(
-                          'Master Peak Limiter',
-                          Icons.shield_rounded,
-                          (_) => _buildMasterLimiterSection(),
-                          shape: Shapes.square,
-                        );
-                        break;
-                      case 2:
-                        _openDetailScreen(
-                          'Soft Anti-Clipping Limiter',
-                          Icons.compress_rounded,
-                          (_) => _buildLimiterSection(),
-                          shape: Shapes.diamond,
-                        );
-                        break;
-                    }
-                  },
-                  itemBuilder: (context, index) {
-                    if (index == 0) {
-                      return _buildEffectTileCard(
-                        icon: Icons.tune_rounded,
-                        shape: Shapes.burst,
-                        title: 'Compressor',
-                        subtitle: _compressorEnabled
-                            ? '$_compressorPreset · ${_compressorThresholdDb.toInt()} dB / ${_compressorRatio.toStringAsFixed(1)}:1'
-                            : 'Disabled',
-                        isEnabled: _compressorEnabled,
-                        onToggle: (v) {
-                          setState(() => _compressorEnabled = v);
-                          _updateCompressor();
-                          _saveEqState();
-                        },
-                        onTapDetail: () => _openDetailScreen(
-                          'Compressor',
-                          Icons.tune_rounded,
-                          (_) => _buildCompressorSection(),
-                          shape: Shapes.burst,
-                        ),
-                      );
-                    }
-                    if (index == 1) {
-                      return _buildEffectTileCard(
-                        icon: Icons.shield_rounded,
-                        shape: Shapes.square,
-                        title: 'Master Peak Limiter',
-                        subtitle: _masterLimiterEnabled
-                            ? 'Ceiling: ${_masterLimiterCeilingDb.toStringAsFixed(1)} dBFS'
-                            : 'Disabled',
-                        isEnabled: _masterLimiterEnabled,
-                        onToggle: (v) {
-                          setState(() => _masterLimiterEnabled = v);
-                          _updateMasterLimiter();
-                          _saveEqState();
-                        },
-                        onTapDetail: () => _openDetailScreen(
-                          'Master Peak Limiter',
-                          Icons.shield_rounded,
-                          (_) => _buildMasterLimiterSection(),
-                          shape: Shapes.square,
-                        ),
-                      );
-                    }
-                    return _buildEffectTileCard(
-                      icon: Icons.compress_rounded,
-                      shape: Shapes.diamond,
-                      title: 'Soft Anti-Clipping Limiter',
-                      subtitle: _limiterEnabled
-                          ? 'Threshold: ${_limiterThreshold.toInt()}dB'
-                          : 'Disabled',
-                      isEnabled: _limiterEnabled,
-                      onToggle: (v) {
-                        setState(() => _limiterEnabled = v);
-                        if (v) {
-                          _applyLimiter();
-                        } else {
-                          widget.player.setLimiterEnabled(false);
-                        }
-                        _saveEqState();
-                      },
-                      onTapDetail: () => _openDetailScreen(
-                        'Soft Anti-Clipping Limiter',
-                        Icons.compress_rounded,
-                        (_) => _buildLimiterSection(),
-                        shape: Shapes.diamond,
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ),
+
 
             // Bottom Spacing for floating player / nav
             const SliverToBoxAdapter(
@@ -3526,102 +3743,7 @@ class _EqScreenState extends State<EqScreen>
         _saveEqState();
       },
       children: [
-        // 1. Sleek Preamp Control Strip
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            color: surfaceDarkerColor,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.08),
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                Icons.volume_up_rounded,
-                size: 18,
-                color:
-                    _preampDb != 0.0 ? Colors.deepOrangeAccent : Colors.white60,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'PREAMP',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.8),
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.5,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: M3ESlider.centered(
-                  value: _preampDb.clamp(-12.0, 12.0),
-                  min: -12.0,
-                  max: 12.0,
-                  trackThickness: 8.0,
-                  cornerRadius: 6.0,
-                  onChanged: (v) {
-                    setState(() {
-                      _preampDb = v;
-                      double gain = math.pow(10, v / 20).toDouble();
-                      widget.player.setGain(gain);
-                    });
-                  },
-                  onChangeEnd: (_) => _saveEqState(),
-                ),
-              ),
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: () {
-                  setState(() {
-                    _preampDb = 0.0;
-                    widget.player.setGain(1.0);
-                  });
-                  _saveEqState();
-                },
-                onLongPress: () => _promptForValue(
-                  title: 'PREAMP',
-                  currentValue: _preampDb,
-                  min: -12.0,
-                  max: 12.0,
-                  onChanged: (v) {
-                    setState(() {
-                      _preampDb = v;
-                      double gain = math.pow(10, v / 20).toDouble();
-                      widget.player.setGain(gain);
-                    });
-                    _saveEqState();
-                  },
-                ),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Colors.deepOrangeAccent.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                      color: Colors.deepOrangeAccent.withValues(alpha: 0.3),
-                    ),
-                  ),
-                  child: Text(
-                    '${_preampDb > 0 ? '+' : ''}${_preampDb.toStringAsFixed(1)} dB',
-                    style: const TextStyle(
-                      color: Colors.deepOrangeAccent,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-
-        // 2. Interactive Spline Curve & Touch Node Controller
+        // 1. Interactive Spline Curve & Touch Node Controller
         RepaintBoundary(
           child: GraphicEqGraph(
             frequencies: _eqFrequencies,
@@ -7523,6 +7645,294 @@ class _EqScreenState extends State<EqScreen>
           child: Text(
             'Tip: higher room size & lower damping give long, bright halls; '
             'pre-delay keeps vocals clear of the tail.',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.4),
+              fontSize: 11.5,
+              height: 1.3,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLookaheadLimiterSection() {
+    return _CollapsibleSection(
+      icon: Center(
+        child: Icon(Icons.speed_rounded, color: primaryColor, size: 20),
+      ),
+      title: 'Look-Ahead True-Peak Limiter',
+      subtitle:
+          '2ms look-ahead inter-sample peak protection (0 clipping guaranteed)',
+      isEnabled: _lookaheadLimiterEnabled,
+      onToggle: (v) {
+        setState(() => _lookaheadLimiterEnabled = v);
+        _persistLookaheadLimiterSettings();
+      },
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'CEILING',
+              value: _lookaheadLimiterCeilingDBTP,
+              min: -6.0,
+              max: 0.0,
+              flatValue: -1.0,
+              activeColor:
+                  _lookaheadLimiterEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)} dBTP',
+              onChanged: (v) {
+                setState(() => _lookaheadLimiterCeilingDBTP = v);
+                _persistLookaheadLimiterSettings();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          alignment: WrapAlignment.center,
+          children: [
+            for (final c in [-0.1, -0.5, -1.0, -2.0, -3.0])
+              M3EChip(
+                label: '${c.toStringAsFixed(1)} dBTP',
+                type: M3EChipType.filter,
+                selected: (_lookaheadLimiterCeilingDBTP - c).abs() < 0.05,
+                onPressed: () {
+                  setState(() => _lookaheadLimiterCeilingDBTP = c);
+                  _persistLookaheadLimiterSettings();
+                },
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4.0),
+          child: Text(
+            'Guarantees zero inter-sample clipping by analyzing 2ms ahead in the buffer. Ideal for lossless audiophile playback.',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.4),
+              fontSize: 11.5,
+              height: 1.3,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPreampSection() {
+    final hasGain = _preampDb != 0.0;
+    return _CollapsibleSection(
+      icon: Center(
+        child: Icon(Icons.volume_up_rounded, color: primaryColor, size: 20),
+      ),
+      title: 'Preamp Gain',
+      subtitle:
+          'Master digital pre-amplification trim applied before EQ & DSP processing',
+      isEnabled: hasGain,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'PREAMP',
+              value: _preampDb,
+              min: -15.0,
+              max: 15.0,
+              flatValue: 0.0,
+              activeColor: hasGain ? Colors.deepOrangeAccent : primaryColor,
+              valueFormatter: (v) =>
+                  '${v > 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
+              onChanged: (v) {
+                setState(() {
+                  _preampDb = v;
+                  double gain = math.pow(10, v / 20).toDouble();
+                  widget.player.setGain(gain);
+                });
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          alignment: WrapAlignment.center,
+          children: [
+            for (final p in [-6.0, -3.0, 0.0, 3.0, 6.0])
+              M3EChip(
+                label: '${p > 0 ? '+' : ''}${p.toStringAsFixed(0)} dB',
+                type: M3EChipType.filter,
+                selected: (_preampDb - p).abs() < 0.1,
+                onPressed: () {
+                  setState(() {
+                    _preampDb = p;
+                    double gain = math.pow(10, p / 20).toDouble();
+                    widget.player.setGain(gain);
+                  });
+                  _saveEqState();
+                },
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4.0),
+          child: Text(
+            'Trim overall input headroom to avoid clipping when applying heavy EQ boosts, or boost low-level recordings.',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.4),
+              fontSize: 11.5,
+              height: 1.3,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLoudnessNormalizerSection() {
+    return _CollapsibleSection(
+      icon: Center(
+        child: Icon(Icons.multitrack_audio_rounded,
+            color: primaryColor, size: 20),
+      ),
+      title: 'ITU-R BS.1770-4 Loudness Normalizer',
+      subtitle: 'Real-time EBU R128 K-weighted loudness matching',
+      isEnabled: _loudnessNormalizerEnabled,
+      onToggle: (v) {
+        setState(() => _loudnessNormalizerEnabled = v);
+        _persistLoudnessNormalizerSettings();
+      },
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'TARGET',
+              value: _loudnessNormalizerTargetLUFS,
+              min: -24.0,
+              max: -8.0,
+              flatValue: -14.0,
+              activeColor:
+                  _loudnessNormalizerEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)} LUFS',
+              onChanged: (v) {
+                setState(() => _loudnessNormalizerTargetLUFS = v);
+                _persistLoudnessNormalizerSettings();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          alignment: WrapAlignment.center,
+          children: [
+            for (final target in [
+              (-14.0, 'Spotify / YouTube (-14 LUFS)'),
+              (-16.0, 'Apple Music (-16 LUFS)'),
+              (-23.0, 'EBU R128 (-23 LUFS)'),
+              (-24.0, 'ATSC A/85 (-24 LUFS)'),
+            ])
+              M3EChip(
+                label: target.$2,
+                type: M3EChipType.filter,
+                selected:
+                    (_loudnessNormalizerTargetLUFS - target.$1).abs() < 0.05,
+                onPressed: () {
+                  setState(() => _loudnessNormalizerTargetLUFS = target.$1);
+                  _persistLoudnessNormalizerSettings();
+                },
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4.0),
+          child: Text(
+            'Matches perceived loudness dynamically using the international standard EBU R128 K-weighted filter.',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.4),
+              fontSize: 11.5,
+              height: 1.3,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildReplayGainSection() {
+    return _CollapsibleSection(
+      icon: Center(
+        child: Icon(Icons.equalizer_rounded, color: primaryColor, size: 20),
+      ),
+      title: 'ReplayGain Metadata Normalization',
+      subtitle:
+          'Automatic volume matching using embedded track/album loudness tags',
+      isEnabled: _replayGainMode != ReplayGainMode.none,
+      onToggle: (v) {
+        setState(() {
+          _replayGainMode = v ? ReplayGainMode.track : ReplayGainMode.none;
+        });
+        _persistReplayGainSettings();
+      },
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            for (final mode in [
+              (ReplayGainMode.none, 'Off'),
+              (ReplayGainMode.track, 'Track'),
+              (ReplayGainMode.album, 'Album'),
+            ])
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: M3EChip(
+                  label: mode.$2,
+                  type: M3EChipType.filter,
+                  selected: _replayGainMode == mode.$1,
+                  onPressed: () {
+                    setState(() => _replayGainMode = mode.$1);
+                    _persistReplayGainSettings();
+                  },
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'PREAMP GAIN',
+              value: _replayGainPreamp,
+              min: -15.0,
+              max: 15.0,
+              flatValue: 0.0,
+              activeColor: _replayGainMode != ReplayGainMode.none
+                  ? primaryColor
+                  : Colors.white,
+              valueFormatter: (v) =>
+                  '${v > 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
+              onChanged: (v) {
+                setState(() => _replayGainPreamp = v);
+                _persistReplayGainSettings();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4.0),
+          child: Text(
+            'Track mode normalizes every song individually. Album mode preserves dynamic differences between songs on the same record.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.4),
               fontSize: 11.5,
