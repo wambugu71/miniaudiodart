@@ -129,11 +129,35 @@ class _ParametricEqPainter extends CustomPainter {
       final band = bands[b];
       if (!band.enabled) continue;
 
-      final coeffs = _computeBiquadCoeffs(band, sampleRate);
-      for (int i = 0; i < numPoints; i++) {
-        final db = _evalBiquadGainDb(coeffs, freqs[i], sampleRate);
-        bandDbCurves[b][i] = db;
-        totalDbCurve[i] += db;
+      if (band.type == EqBandType.tilt) {
+        final halfGain = band.gainDb * 0.5;
+        final lowBand = EqBandConfig(
+          type: EqBandType.lowshelf,
+          frequencyHz: band.frequencyHz,
+          gainDb: -halfGain,
+          slope: band.slope,
+        );
+        final highBand = EqBandConfig(
+          type: EqBandType.highshelf,
+          frequencyHz: band.frequencyHz,
+          gainDb: halfGain,
+          slope: band.slope,
+        );
+        final lowCoeffs = _computeBiquadCoeffs(lowBand, sampleRate);
+        final highCoeffs = _computeBiquadCoeffs(highBand, sampleRate);
+        for (int i = 0; i < numPoints; i++) {
+          final db = _evalBiquadGainDb(lowCoeffs, freqs[i], sampleRate) +
+              _evalBiquadGainDb(highCoeffs, freqs[i], sampleRate);
+          bandDbCurves[b][i] = db;
+          totalDbCurve[i] += db;
+        }
+      } else {
+        final coeffs = _computeBiquadCoeffs(band, sampleRate);
+        for (int i = 0; i < numPoints; i++) {
+          final db = _evalBiquadGainDb(coeffs, freqs[i], sampleRate);
+          bandDbCurves[b][i] = db;
+          totalDbCurve[i] += db;
+        }
       }
     }
 
@@ -240,8 +264,13 @@ class _ParametricEqPainter extends CustomPainter {
       final handleX = paddingLeft + logRatio * graphWidth;
 
       // Evaluate the actual net gain at center frequency for placing the handle
-      final coeffs = _computeBiquadCoeffs(band, sampleRate);
-      final bandNetDb = _evalBiquadGainDb(coeffs, freq, sampleRate);
+      final double bandNetDb;
+      if (band.type == EqBandType.tilt) {
+        bandNetDb = 0.0;
+      } else {
+        final coeffs = _computeBiquadCoeffs(band, sampleRate);
+        bandNetDb = _evalBiquadGainDb(coeffs, freq, sampleRate);
+      }
       final handleY = dbToY(bandNetDb);
 
       // Outer glowing ring
@@ -378,6 +407,7 @@ class _ParametricEqPainter extends CustomPainter {
 
     switch (band.type) {
       case EqBandType.peak:
+      case EqBandType.bell:
         final q = band.q > 0 ? band.q : 1.0;
         final alpha = sinW0 / (2.0 * q);
         b0 = 1.0 + alpha * A;
@@ -454,6 +484,16 @@ class _ParametricEqPainter extends CustomPainter {
         a0 = 1.0 + alpha;
         a1 = -2.0 * cosW0;
         a2 = 1.0 - alpha;
+        break;
+
+      case EqBandType.tilt:
+        // Handled via cascaded low-shelf + high-shelf in paint()
+        b0 = 1.0;
+        b1 = 0.0;
+        b2 = 0.0;
+        a0 = 1.0;
+        a1 = 0.0;
+        a2 = 0.0;
         break;
     }
 

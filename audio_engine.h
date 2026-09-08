@@ -82,7 +82,9 @@ extern "C"
         AE_EQ_BAND_LOWSHELF = 3,
         AE_EQ_BAND_HIGHSHELF = 4,
         AE_EQ_BAND_LOWPASS = 5,
-        AE_EQ_BAND_HIGHPASS = 6
+        AE_EQ_BAND_HIGHPASS = 6,
+        AE_EQ_BAND_BELL = 7,
+        AE_EQ_BAND_TILT = 8
     } AEEqBandType;
 
     typedef struct AEPipelineState

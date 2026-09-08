@@ -19,7 +19,9 @@ enum EqBandType {
   lowshelf,
   highshelf,
   lowpass,
-  highpass
+  highpass,
+  bell,
+  tilt,
 }
 
 enum AttenuationModel { none, inverse, linear, exponential }

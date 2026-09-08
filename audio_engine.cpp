@@ -3393,6 +3393,9 @@ struct AudioEngineHandle
         ma_hishelf2 highshelf{};
         ma_lpf2 lowpass{};
         ma_hpf2 highpass{};
+        ma_peak2 bell{};
+        ma_loshelf2 tiltLow{};
+        ma_hishelf2 tiltHigh{};
     };
 
     bool multibandFxEnabled = false;
@@ -3541,6 +3544,40 @@ struct AudioEngineHandle
                 (void)ma_hpf2_init(&config, nullptr, &band.highpass);
                 break;
             }
+            case AE_EQ_BAND_BELL:
+            {
+                ma_peak2_config config = ma_peak2_config_init(
+                    ma_format_f32,
+                    channelsU32,
+                    sampleRateU32,
+                    gainDb,
+                    q,
+                    frequencyHz);
+                (void)ma_peak2_init(&config, nullptr, &band.bell);
+                break;
+            }
+            case AE_EQ_BAND_TILT:
+            {
+                const float halfGain = gainDb * 0.5f;
+                ma_loshelf2_config lowConfig = ma_loshelf2_config_init(
+                    ma_format_f32,
+                    channelsU32,
+                    sampleRateU32,
+                    -halfGain,
+                    slope,
+                    frequencyHz);
+                (void)ma_loshelf2_init(&lowConfig, nullptr, &band.tiltLow);
+
+                ma_hishelf2_config highConfig = ma_hishelf2_config_init(
+                    ma_format_f32,
+                    channelsU32,
+                    sampleRateU32,
+                    halfGain,
+                    slope,
+                    frequencyHz);
+                (void)ma_hishelf2_init(&highConfig, nullptr, &band.tiltHigh);
+                break;
+            }
             case AE_EQ_BAND_PEAK:
             default:
             {
@@ -3584,6 +3621,13 @@ struct AudioEngineHandle
                 break;
             case AE_EQ_BAND_HIGHPASS:
                 (void)ma_hpf2_process_pcm_frames(&band.highpass, frames, frames, (ma_uint64)frameCount);
+                break;
+            case AE_EQ_BAND_BELL:
+                (void)ma_peak2_process_pcm_frames(&band.bell, frames, frames, (ma_uint64)frameCount);
+                break;
+            case AE_EQ_BAND_TILT:
+                (void)ma_loshelf2_process_pcm_frames(&band.tiltLow, frames, frames, (ma_uint64)frameCount);
+                (void)ma_hishelf2_process_pcm_frames(&band.tiltHigh, frames, frames, (ma_uint64)frameCount);
                 break;
             case AE_EQ_BAND_PEAK:
             default:
@@ -9461,7 +9505,7 @@ extern "C"
             AudioEngineHandle::FxBand band{};
 
             int type = types[i];
-            if (type < AE_EQ_BAND_PEAK || type > AE_EQ_BAND_HIGHSHELF)
+            if (type < AE_EQ_BAND_PEAK || type > AE_EQ_BAND_TILT)
             {
                 type = AE_EQ_BAND_PEAK;
             }

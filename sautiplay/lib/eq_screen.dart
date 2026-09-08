@@ -5071,6 +5071,8 @@ class _EqScreenState extends State<EqScreen>
                             EqBandType.highshelf => 'High Shelf',
                             EqBandType.lowpass => 'Low-Pass',
                             EqBandType.highpass => 'High-Pass',
+                            EqBandType.bell => 'Bell',
+                            EqBandType.tilt => 'Tilt',
                           },
                         ))
                     .toList(),
@@ -5097,7 +5099,7 @@ class _EqScreenState extends State<EqScreen>
                   // Frequency Knob
                   ModernAudioKnob(
                     size: 52,
-                    label: 'FREQ',
+                    label: band.type == EqBandType.tilt ? 'PIVOT' : 'FREQ',
                     value: band.frequencyHz.clamp(20.0, 20000.0),
                     min: 20.0,
                     max: 20000.0,
@@ -5126,11 +5128,13 @@ class _EqScreenState extends State<EqScreen>
                   ModernAudioKnob(
                     size: 52,
                     label: band.type == EqBandType.lowshelf ||
-                            band.type == EqBandType.highshelf
+                            band.type == EqBandType.highshelf ||
+                            band.type == EqBandType.tilt
                         ? 'SLOPE'
                         : 'Q',
                     value: band.type == EqBandType.lowshelf ||
-                            band.type == EqBandType.highshelf
+                            band.type == EqBandType.highshelf ||
+                            band.type == EqBandType.tilt
                         ? band.slope
                         : band.q,
                     min: 0.1,
@@ -5142,7 +5146,8 @@ class _EqScreenState extends State<EqScreen>
                     onChanged: (v) {
                       setState(() {
                         if (band.type == EqBandType.lowshelf ||
-                            band.type == EqBandType.highshelf) {
+                            band.type == EqBandType.highshelf ||
+                            band.type == EqBandType.tilt) {
                           _parametricBands[index] = EqBandConfig(
                             type: band.type,
                             frequencyHz: band.frequencyHz,
@@ -5168,13 +5173,15 @@ class _EqScreenState extends State<EqScreen>
                     },
                   ),
 
-                  // Gain Knob (for Peak, Low Shelf, High Shelf)
+                  // Gain Knob (for Peak, Bell, Low Shelf, High Shelf, Tilt)
                   if (band.type == EqBandType.peak ||
+                      band.type == EqBandType.bell ||
                       band.type == EqBandType.lowshelf ||
-                      band.type == EqBandType.highshelf)
+                      band.type == EqBandType.highshelf ||
+                      band.type == EqBandType.tilt)
                     ModernAudioKnob(
                       size: 52,
-                      label: 'GAIN',
+                      label: band.type == EqBandType.tilt ? 'TILT' : 'GAIN',
                       value: band.gainDb,
                       min: -24.0,
                       max: 24.0,
