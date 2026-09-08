@@ -467,9 +467,21 @@ extern "C"
 
     // Realtime analyzer frames (post-FX, mono mixdown).
     // frame_size: number of mono samples per analyzer snapshot.
+    typedef enum AE_FFT_WINDOW_TYPE
+    {
+        AE_FFT_WINDOW_HANN = 0,
+        AE_FFT_WINDOW_HAMMING = 1,
+        AE_FFT_WINDOW_BLACKMAN_HARRIS = 2,
+        AE_FFT_WINDOW_FLAT_TOP = 3
+    } AE_FFT_WINDOW_TYPE;
+
     AE_API void ae_set_analyzer_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_configure_analyzer(AudioEngineHandle *engine, int frame_size);
     AE_API int ae_get_analyzer_frame_size(AudioEngineHandle *engine);
+    AE_API void ae_configure_analyzer_window(AudioEngineHandle *engine, int window_type);
+    AE_API int ae_get_analyzer_window_type(AudioEngineHandle *engine);
+    AE_API void ae_generate_fft_window(int window_type, float *out_window, int size);
+    AE_API void ae_apply_fft_window(const float *in_samples, float *out_samples, int size, int window_type);
     // Copies latest analyzer snapshot into out_samples (up to max_samples).
     // Returns number of samples copied.
     AE_API int ae_poll_analyzer_frame(AudioEngineHandle *engine, float *out_samples, int max_samples);

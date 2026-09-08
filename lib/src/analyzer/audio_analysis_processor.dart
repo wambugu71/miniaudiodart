@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
+import '../../audio_engine_ffi.dart' show FftWindowType;
+export '../../audio_engine_ffi.dart' show FftWindowType;
 
 /// Immutable snapshot of real-time audio analysis (RMS and Spectrum).
 class AudioAnalysisData {
@@ -61,9 +63,12 @@ class AudioAnalysisProcessor {
   late final Float32List _peakHoldBands;
   late final Int64List _peakHoldUntilMs;
 
+  FftWindowType _windowType;
+  FftWindowType get windowType => _windowType;
+
   // Precomputed FFT tables
   int _fftSize = 0;
-  late Float32List _hannWindow;
+  late Float32List _window;
   late Float32List _real;
   late Float32List _imag;
   late Int32List _bitReverse;
@@ -80,10 +85,20 @@ class AudioAnalysisProcessor {
     this.peakHoldDecay = 0.02,
     this.peakHoldDurationMs = 250,
     this.useEqualLoudnessWeighting = true,
-  }) {
+    FftWindowType windowType = FftWindowType.hann,
+  }) : _windowType = windowType {
     _smoothedBands = Float32List(numBands);
     _peakHoldBands = Float32List(numBands);
     _peakHoldUntilMs = Int64List(numBands);
+  }
+
+  /// Change active FFT window function dynamically.
+  void setWindowType(FftWindowType type) {
+    if (_windowType == type) return;
+    _windowType = type;
+    if (_fftSize > 0) {
+      _computeWindowTable(_fftSize);
+    }
   }
 
   final int peakHoldDurationMs;
@@ -137,10 +152,10 @@ class AudioAnalysisProcessor {
       _initFftTables(fftSize);
     }
 
-    // 3. Apply Hann Window and Copy into FFT Real Buffer
+    // 3. Apply Window and Copy into FFT Real Buffer
     for (int i = 0; i < fftSize; i++) {
       if (i < len) {
-        _real[i] = pcmSamples[i] * _hannWindow[i];
+        _real[i] = pcmSamples[i] * _window[i];
       } else {
         _real[i] = 0.0; // Zero padding if frame < fftSize
       }
@@ -153,6 +168,7 @@ class AudioAnalysisProcessor {
     // 5. Calculate Magnitudes for positive frequencies (0 to N/2)
     final numBins = _fftSize ~/ 2;
     final binWidth = sampleRate / _fftSize;
+    final normFactor = _windowType.coherentGainFactor / _fftSize;
 
     // 6. Map FFT Bins to Logarithmic Frequency Bands
     final bandValues = Float32List(numBands);
@@ -173,8 +189,8 @@ class AudioAnalysisProcessor {
       for (int bin = binStart; bin < binEnd; bin++) {
         final re = _real[bin];
         final im = _imag[bin];
-        // Normalized FFT magnitude
-        final mag = math.sqrt(re * re + im * im) / (_fftSize * 0.5);
+        // Normalized FFT magnitude using window-specific coherent gain
+        final mag = math.sqrt(re * re + im * im) * normFactor;
         if (mag > maxMagInBand) maxMagInBand = mag;
         sumMagInBand += mag;
         count++;
@@ -241,15 +257,11 @@ class AudioAnalysisProcessor {
     _fftSize = fftSize;
     _real = Float32List(fftSize);
     _imag = Float32List(fftSize);
-    _hannWindow = Float32List(fftSize);
     _bitReverse = Int32List(fftSize);
     _cosTable = Float32List(fftSize ~/ 2);
     _sinTable = Float32List(fftSize ~/ 2);
 
-    // Precompute Hann Window
-    for (int i = 0; i < fftSize; i++) {
-      _hannWindow[i] = 0.5 * (1.0 - math.cos(2.0 * math.pi * i / (fftSize - 1)));
-    }
+    _computeWindowTable(fftSize);
 
     // Precompute Bit-Reversal Table
     int bits = (math.log(fftSize) / math.ln2).round();
@@ -268,6 +280,41 @@ class AudioAnalysisProcessor {
       final angle = -2.0 * math.pi * i / fftSize;
       _cosTable[i] = math.cos(angle);
       _sinTable[i] = math.sin(angle);
+    }
+  }
+
+  void _computeWindowTable(int fftSize) {
+    _window = Float32List(fftSize);
+    if (fftSize <= 1) {
+      if (fftSize == 1) _window[0] = 1.0;
+      return;
+    }
+    final twoPi = 2.0 * math.pi;
+    final invN = 1.0 / (fftSize - 1);
+    for (int i = 0; i < fftSize; i++) {
+      final x = twoPi * i * invN;
+      switch (_windowType) {
+        case FftWindowType.hamming:
+          _window[i] = 0.54 - 0.46 * math.cos(x);
+          break;
+        case FftWindowType.blackmanHarris:
+          _window[i] = 0.35875 -
+              0.48829 * math.cos(x) +
+              0.14128 * math.cos(2.0 * math.pi * 2.0 * i * invN) -
+              0.01168 * math.cos(2.0 * math.pi * 3.0 * i * invN);
+          break;
+        case FftWindowType.flatTop:
+          _window[i] = 0.21557895 -
+              0.41663158 * math.cos(x) +
+              0.277263158 * math.cos(2.0 * math.pi * 2.0 * i * invN) -
+              0.083578947 * math.cos(2.0 * math.pi * 3.0 * i * invN) +
+              0.006947368 * math.cos(2.0 * math.pi * 4.0 * i * invN);
+          break;
+        case FftWindowType.hann:
+        default:
+          _window[i] = 0.5 * (1.0 - math.cos(x));
+          break;
+      }
     }
   }
 

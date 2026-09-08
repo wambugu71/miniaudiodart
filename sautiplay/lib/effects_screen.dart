@@ -53,6 +53,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
   void initState() {
     super.initState();
     _currentAnalyzerType = widget.analyzerType;
+    _isPlaying = widget.player.isPlaying;
     _setupAnalyzer(widget.analyzerEnabled);
     _statusSub = widget.player.statusStream.listen((status) {
       if (mounted && _isPlaying != status.isPlaying) {
@@ -87,7 +88,10 @@ class _EffectsScreenState extends State<EffectsScreen> {
       _fftProcessor ??= FftProcessor(sampleRate: sr);
       widget.player.setAnalyzerEnabled(true);
       _analyzerSub ??= widget.player.analyzerStream.listen((frame) {
-        if (frame.isEmpty || !_isPlaying) return;
+        if (frame.isEmpty) return;
+        if (!_isPlaying) {
+          _isPlaying = true;
+        }
         const targetBins = 60;
         final bins = _fftProcessor!.processFrame(frame, targetBins: targetBins);
         if (mounted) {
@@ -575,9 +579,8 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                   physics: const NeverScrollableScrollPhysics(),
                                   child: Column(
                                     children: [
-                                      // FL Chart Realtime Analyzer
-                                      if (widget.analyzerEnabled &&
-                                          _analyzerValues.isNotEmpty)
+                                      // Realtime Visualizer (BarChart / LineChart / GLSL Shaders)
+                                      if (widget.analyzerEnabled)
                                         Padding(
                                           padding: const EdgeInsets.symmetric(
                                               horizontal: 16.0, vertical: 8.0),
@@ -590,36 +593,15 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                           ),
                                         ),
 
-                                      // Spectrum Visualizer + RMS Meter
+                                      // RMS Loudness Meter Slider
                                       if (widget.analyzerEnabled)
                                         Padding(
                                           padding: const EdgeInsets.symmetric(
                                               horizontal: 16.0, vertical: 6.0),
-                                          child: Column(
-                                            children: [
-                                              SpectrumVisualizerWidget(
-                                                analyzerStream: widget
-                                                    .player.analyzerStream,
-                                                isPlaying: _isPlaying,
-                                                bandCount: 32,
-                                                height: 85,
-                                                style: SpectrumVisualStyle
-                                                    .values
-                                                    .firstWhere(
-                                                  (s) =>
-                                                      s.name ==
-                                                      widget.spectrumStyle,
-                                                  orElse: () =>
-                                                      SpectrumVisualStyle.neon,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 8),
-                                              RmsMeterWidget(
-                                                analyzerStream: widget
-                                                    .player.analyzerStream,
-                                                isPlaying: _isPlaying,
-                                              ),
-                                            ],
+                                          child: RmsMeterWidget(
+                                            analyzerStream: widget
+                                                .player.analyzerStream,
+                                            isPlaying: _isPlaying,
                                           ),
                                         ),
                                     ],

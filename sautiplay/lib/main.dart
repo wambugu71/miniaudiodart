@@ -232,6 +232,7 @@ class _PlayerShellState extends State<PlayerShell> {
   bool _analyzerEnabled = true;
   String _analyzerType = 'area';
   int _analyzerSampleSize = 1024;
+  String _analyzerWindowType = 'hann';
   bool _analyzerAutoFit = true;
   bool _analyzerShowGrids = true;
   bool _analyzerLogScale = true;
@@ -499,6 +500,7 @@ class _PlayerShellState extends State<PlayerShell> {
       _analyzerEnabled = engine.analyzerEnabled;
       _analyzerType = engine.analyzerType;
       _analyzerSampleSize = engine.analyzerSampleSize;
+      _analyzerWindowType = engine.analyzerWindowType;
       _allowInvalidTlsForDownloads = engine.allowInvalidTls;
       _exclusiveMode = engine.exclusiveMode;
       _analyzerAutoFit = engine.analyzerAutoFit;
@@ -520,7 +522,10 @@ class _PlayerShellState extends State<PlayerShell> {
     _player.setCrossfadeEnabled(_crossfadeEnabled);
     _player.setCrossfadeDurationMs(_crossfadeDurationMs);
     _player.setAnalyzerEnabled(_analyzerEnabled);
-    _player.configureAnalyzer(frameSize: _analyzerSampleSize);
+    _player.configureAnalyzer(
+      frameSize: _analyzerSampleSize,
+      windowType: _analyzerWindowType,
+    );
 
     // Apply Phase Inversion, Speaker Protection, 64-bit float & Auto Bit-Perfect
     final phaseSaved = await AppStateService.instance.loadPhaseInversion();
@@ -646,6 +651,7 @@ class _PlayerShellState extends State<PlayerShell> {
       analyzerEnabled: _analyzerEnabled,
       analyzerType: _analyzerType,
       analyzerSampleSize: _analyzerSampleSize,
+      analyzerWindowType: _analyzerWindowType,
       allowInvalidTls: _allowInvalidTlsForDownloads,
       exclusiveMode: _exclusiveMode,
       analyzerAutoFit: _analyzerAutoFit,
@@ -2718,7 +2724,19 @@ class _PlayerShellState extends State<PlayerShell> {
                   analyzerSampleSize: _analyzerSampleSize,
                   onAnalyzerSampleSizeChanged: (v) {
                     setState(() => _analyzerSampleSize = v);
-                    _player.configureAnalyzer(frameSize: v);
+                    _player.configureAnalyzer(
+                      frameSize: v,
+                      windowType: _analyzerWindowType,
+                    );
+                    _saveEngineSettings();
+                  },
+                  analyzerWindowType: _analyzerWindowType,
+                  onAnalyzerWindowTypeChanged: (v) {
+                    setState(() => _analyzerWindowType = v);
+                    _player.configureAnalyzer(
+                      frameSize: _analyzerSampleSize,
+                      windowType: v,
+                    );
                     _saveEngineSettings();
                   },
                   outputFormat: _outputFormat,

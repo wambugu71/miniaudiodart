@@ -280,8 +280,14 @@ class MiniAudioPlayer {
   bool get supportsSystemMediaControls => _systemAudio.isSupported;
   bool get systemMediaControlsEnabled => _systemAudio.isEnabled;
 
-  void configureAnalyzer({int frameSize = 512}) =>
-      _engine.configureAnalyzer(frameSize);
+  void configureAnalyzer({int frameSize = 512, FftWindowType? windowType}) =>
+      _engine.configureAnalyzer(frameSize, windowType);
+
+  void setAnalyzerWindowType(FftWindowType windowType) =>
+      _engine.configureAnalyzerWindow(windowType);
+
+  FftWindowType getAnalyzerWindowType() => _engine.getAnalyzerWindowType();
+  FftWindowType get analyzerWindowType => _engine.getAnalyzerWindowType();
 
   void setAnalyzerEnabled(bool enabled) {
     _analyzerEnabled = enabled;

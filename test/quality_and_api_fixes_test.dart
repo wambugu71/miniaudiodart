@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sautiflow/sautiflow.dart';
@@ -177,5 +178,79 @@ void main() {
       expect(dataLoudness.bands.length, equals(32));
       expect(dataFlat.bands.length, equals(32));
     });
+
+    test('11. 4 Premier FFT Window Functions in AudioAnalysisProcessor', () {
+      // Test each of the 4 best FFT window types
+      for (final winType in FftWindowType.values) {
+        final processor = AudioAnalysisProcessor(
+          numBands: 32,
+          sampleRate: 48000,
+          windowType: winType,
+        );
+        expect(processor.windowType, equals(winType));
+
+        // Generate 1 kHz sine wave frame
+        final testFrame = Float32List(1024);
+        const freq = 1000.0;
+        const sampleRate = 48000.0;
+        for (int i = 0; i < 1024; i++) {
+          testFrame[i] = 0.7 * math.sin(2.0 * math.pi * freq * i / sampleRate);
+        }
+
+        final data = processor.processFrame(testFrame);
+        expect(data.bands.length, equals(32));
+        expect(data.peakHoldBands.length, equals(32));
+        expect(data.rmsLinear, greaterThan(0.0));
+        expect(data.rmsDb, greaterThan(-60.0));
+
+        // Magnitude should be positive and bounded
+        double maxBand = 0.0;
+        for (final b in data.bands) {
+          if (b > maxBand) maxBand = b;
+        }
+        expect(maxBand, greaterThan(0.05));
+        expect(maxBand, lessThanOrEqualTo(1.0));
+
+        // Verify dynamic switching
+        processor.setWindowType(FftWindowType.blackmanHarris);
+        expect(processor.windowType, equals(FftWindowType.blackmanHarris));
+        final dataSwitched = processor.processFrame(testFrame);
+        expect(dataSwitched.bands.length, equals(32));
+      }
+    });
+
+    test('12. Native C ABI & Player Analyzer Window Configuration', () {
+      final ok = player.init(sampleRate: 48000);
+      expect(ok, isTrue);
+
+      player.setAnalyzerWindowType(FftWindowType.blackmanHarris);
+      expect(player.analyzerWindowType, equals(FftWindowType.blackmanHarris));
+
+      player.configureAnalyzer(frameSize: 1024, windowType: FftWindowType.flatTop);
+      expect(player.getAnalyzerFrameSize(), equals(1024));
+      expect(player.analyzerWindowType, equals(FftWindowType.flatTop));
+
+      player.configureAnalyzer(frameSize: 512, windowType: FftWindowType.hann);
+      expect(player.getAnalyzerFrameSize(), equals(512));
+      expect(player.analyzerWindowType, equals(FftWindowType.hann));
+    });
+
+    test('13. FftWindowType parsing, metadata, and coherent gain properties', () {
+      expect(FftWindowType.fromString('hann'), equals(FftWindowType.hann));
+      expect(FftWindowType.fromString('hanning'), equals(FftWindowType.hann));
+      expect(FftWindowType.fromString('hamming'), equals(FftWindowType.hamming));
+      expect(FftWindowType.fromString('blackman_harris'), equals(FftWindowType.blackmanHarris));
+      expect(FftWindowType.fromString('blackman'), equals(FftWindowType.blackmanHarris));
+      expect(FftWindowType.fromString('flat_top'), equals(FftWindowType.flatTop));
+      expect(FftWindowType.fromString('flattop'), equals(FftWindowType.flatTop));
+      expect(FftWindowType.fromString(null), equals(FftWindowType.hann));
+
+      for (final type in FftWindowType.values) {
+        expect(type.displayName.isNotEmpty, isTrue);
+        expect(type.description.isNotEmpty, isTrue);
+        expect(type.coherentGainFactor, greaterThan(1.0));
+      }
+    });
   });
 }
+

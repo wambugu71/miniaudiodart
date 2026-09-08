@@ -41,6 +41,8 @@ class SettingsScreen extends StatefulWidget {
   final ValueChanged<bool> onAnalyzerLogScaleChanged;
   final int analyzerSampleSize;
   final ValueChanged<int> onAnalyzerSampleSizeChanged;
+  final String analyzerWindowType;
+  final ValueChanged<String> onAnalyzerWindowTypeChanged;
   final AudioFormat outputFormat;
   final ValueChanged<AudioFormat> onOutputFormatChanged;
   final int outputSampleRate;
@@ -84,6 +86,8 @@ class SettingsScreen extends StatefulWidget {
     required this.onAnalyzerLogScaleChanged,
     required this.analyzerSampleSize,
     required this.onAnalyzerSampleSizeChanged,
+    this.analyzerWindowType = 'hann',
+    required this.onAnalyzerWindowTypeChanged,
     required this.outputFormat,
     required this.onOutputFormatChanged,
     required this.outputSampleRate,
@@ -642,11 +646,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 return _buildCategoryCard(
                                   title: 'Visualization & RTA',
                                   subtitle:
-                                      'Spectrum analyzer styles, grids, FFT size',
+                                      'Spectrum styles, FFT window & resolution, RTA monitoring',
                                   icon: Icons.bar_chart_rounded,
                                   accentColor: _primary,
                                   badgeText: widget.analyzerEnabled
-                                      ? widget.spectrumStyle.toUpperCase()
+                                      ? '${widget.spectrumStyle.toUpperCase()} • ${_getFftWindowDisplayName(widget.analyzerWindowType).toUpperCase()}'
                                       : 'Off',
                                   onTap: () => _navigateToSubScreen(
                                       _buildVisualizationSubScreen()),
@@ -2380,14 +2384,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (context, setSubState) {
         final isArea = widget.analyzerType == 'area';
         final activeStyleName = widget.spectrumStyle.toLowerCase();
-        final displayTypeLabel = isArea ? 'Area Curve' : 'Bar Spectrum';
-        final displayThemeLabel = activeStyleName.toUpperCase();
 
         return _buildSubScreenLayout(
           title: 'Visualization & RTA',
           children: [
-            // ── TOP LIVE SPECTRUM PREVIEW CARD ────────────────────────────
-            _buildSectionHeader('REAL-TIME SPECTRUM MONITOR'),
+            // ── TOP LIVE RTA & RMS LOUDNESS CARD ────────────────────────────
+            _buildSectionHeader('REAL-TIME AUDIO & RMS LOUDNESS'),
             const SizedBox(height: 8),
             AppCardContainer(
               padding: const EdgeInsets.all(16.0),
@@ -2395,7 +2397,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Row(
                   children: [
                     AppShapeIcon(
-                      Icons.auto_graph_rounded,
+                      Icons.speed_rounded,
                       shape: Shapes.pill,
                       color: widget.analyzerEnabled ? _primary : _textDark,
                       size: 38,
@@ -2407,7 +2409,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Real-Time Spectrum (RTA)',
+                            'RTA RMS Loudness',
                             style: TextStyle(
                               color: _textPrimary,
                               fontSize: 15,
@@ -2418,9 +2420,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           Text(
                             widget.analyzerEnabled
                                 ? (_isPlaying
-                                    ? '60 FPS Active RTA Monitoring'
+                                    ? 'Real-Time RMS & Peak Level Monitoring'
                                     : 'Awaiting Audio Playback')
-                                : 'Visualizer Engine Disabled',
+                                : 'Level Meter Bypassed',
                             style: TextStyle(
                               color: _textDark,
                               fontSize: 12,
@@ -2431,7 +2433,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     AppStatusBadge(
                       text: widget.analyzerEnabled
-                          ? '$displayTypeLabel • $displayThemeLabel'
+                          ? '${_isPlaying ? "ACTIVE" : "STANDBY"} • ${_getFftWindowDisplayName(widget.analyzerWindowType).toUpperCase()}'
                           : 'BYPASSED',
                       color: widget.analyzerEnabled ? _primary : _textDark,
                     ),
@@ -2452,94 +2454,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 12.0, vertical: 12.0),
                   child: widget.analyzerEnabled
-                      ? Column(
-                          children: [
-                            SizedBox(
-                              height: 120,
-                              child: SpectrumVisualizerWidget(
-                                analyzerStream: widget.player.analyzerStream,
-                                isPlaying: _isPlaying,
-                                bandCount: 36,
-                                style: _getSpectrumVisualStyle(
-                                    widget.spectrumStyle),
-                                showPeakHold: true,
-                                barRadius: isArea
-                                    ? 1.0
-                                    : (widget.spectrumStyle == 'pill'
-                                        ? 8.0
-                                        : 3.0),
-                                height: 120,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            // Frequency Legend Ticks
-                            Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 4.0),
-                              child: Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text('20 Hz',
-                                      style: TextStyle(
-                                          color:
-                                              _textDark.withValues(alpha: 0.7),
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w500)),
-                                  Text('100 Hz',
-                                      style: TextStyle(
-                                          color:
-                                              _textDark.withValues(alpha: 0.7),
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w500)),
-                                  Text('500 Hz',
-                                      style: TextStyle(
-                                          color:
-                                              _textDark.withValues(alpha: 0.7),
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w500)),
-                                  Text('1 kHz',
-                                      style: TextStyle(
-                                          color:
-                                              _textDark.withValues(alpha: 0.7),
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w500)),
-                                  Text('5 kHz',
-                                      style: TextStyle(
-                                          color:
-                                              _textDark.withValues(alpha: 0.7),
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w500)),
-                                  Text('20 kHz',
-                                      style: TextStyle(
-                                          color:
-                                              _textDark.withValues(alpha: 0.7),
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w500)),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            RmsMeterWidget(
-                              analyzerStream: widget.player.analyzerStream,
-                              isPlaying: _isPlaying,
-                            ),
-                          ],
+                      ? RmsMeterWidget(
+                          analyzerStream: widget.player.analyzerStream,
+                          isPlaying: _isPlaying,
                         )
                       : Container(
-                          height: 110,
+                          height: 52,
                           alignment: Alignment.center,
-                          child: Column(
+                          child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Icon(
                                 Icons.graphic_eq_rounded,
                                 color: _textDark.withValues(alpha: 0.4),
-                                size: 36,
+                                size: 22,
                               ),
-                              const SizedBox(height: 8),
+                              const SizedBox(width: 8),
                               Text(
-                                'Audio spectrum analyzer is paused & bypassed',
+                                'Audio loudness meter is paused & bypassed',
                                 style: TextStyle(
                                   color: _textDark,
                                   fontSize: 13,
@@ -2836,7 +2768,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'FFT Sample Window',
+                                    'FFT Frame Size (Buffer)',
                                     style: TextStyle(
                                       color: _textPrimary,
                                       fontSize: 15,
@@ -2880,8 +2812,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             onSelectionChanged: (val) {
                               if (val.isNotEmpty) {
                                 widget.onAnalyzerSampleSizeChanged(val.first);
-                                widget.player
-                                    .configureAnalyzer(frameSize: val.first);
+                                widget.player.configureAnalyzer(
+                                  frameSize: val.first,
+                                  windowType: widget.analyzerWindowType,
+                                );
                                 setSubState(() {});
                               }
                             },
@@ -2901,6 +2835,91 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       onDone: () => setSubState(() {}),
                     ),
                   ),
+                  const M3EDivider(),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            _buildLeadingIcon(Icons.waves_rounded),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'FFT Window Function',
+                                    style: TextStyle(
+                                      color: _textPrimary,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    _getFftWindowDescription(
+                                        widget.analyzerWindowType),
+                                    style: TextStyle(
+                                        color: _textDark, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            AppStatusBadge(
+                              text: _getFftWindowDisplayName(
+                                  widget.analyzerWindowType),
+                              onTap: () => _showAnalyzerWindowDialog(
+                                onDone: () => setSubState(() {}),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        SizedBox(
+                          width: double.infinity,
+                          child: M3ESegmentedButton<String>(
+                            segments: const [
+                              M3ESegment(value: 'hann', label: 'Hann'),
+                              M3ESegment(value: 'hamming', label: 'Hamming'),
+                              M3ESegment(
+                                  value: 'blackman_harris',
+                                  label: 'Blackman-H'),
+                              M3ESegment(value: 'flat_top', label: 'Flat-Top'),
+                            ],
+                            selected: {
+                              ['hann', 'hamming', 'blackman_harris', 'flat_top']
+                                      .contains(widget.analyzerWindowType)
+                                  ? widget.analyzerWindowType
+                                  : 'hann'
+                            },
+                            onSelectionChanged: (val) {
+                              if (val.isNotEmpty) {
+                                widget.onAnalyzerWindowTypeChanged(val.first);
+                                widget.player.configureAnalyzer(
+                                  frameSize: widget.analyzerSampleSize,
+                                  windowType: val.first,
+                                );
+                                setSubState(() {});
+                              }
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const M3EDivider(),
+                  M3EListItem(
+                    headline: 'Window Characteristics & Guide',
+                    supportingText:
+                        'Explore sidelobe suppression, bandwidth & RTA accuracy',
+                    leading: _buildLeadingIcon(Icons.info_outline_rounded),
+                    trailing: const Icon(Icons.chevron_right_rounded, size: 22),
+                    onTap: () => _showAnalyzerWindowDialog(
+                      onDone: () => setSubState(() {}),
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -2910,12 +2929,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  SpectrumVisualStyle _getSpectrumVisualStyle(String styleName) {
-    return SpectrumVisualStyle.values.firstWhere(
-      (s) => s.name == styleName,
-      orElse: () => SpectrumVisualStyle.neon,
-    );
+  String _getFftWindowDisplayName(String type) {
+    return FftWindowType.fromString(type).displayName;
   }
+
+  String _getFftWindowDescription(String type) {
+    switch (FftWindowType.fromString(type)) {
+      case FftWindowType.hann:
+        return 'Hann • Balanced all-rounder with smooth visual response (-31.5 dB sidelobes)';
+      case FftWindowType.hamming:
+        return 'Hamming • Narrow main lobe for sharp harmonic separation (-42.5 dB sidelobes)';
+      case FftWindowType.blackmanHarris:
+        return 'Blackman-Harris • 4-term ultra-low leakage (-92.0 dB sidelobes)';
+      case FftWindowType.flatTop:
+        return 'Flat-Top • Calibrated passband with < 0.01 dB scalloping loss';
+    }
+  }
+
 
   String _getFftSampleSizeDescription(int size) {
     switch (size) {
@@ -2946,7 +2976,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         widget.onAnalyzerShowGridsChanged(true);
         widget.onAnalyzerLogScaleChanged(true);
         widget.onAnalyzerSampleSizeChanged(1024);
-        widget.player.configureAnalyzer(frameSize: 1024);
+        widget.onAnalyzerWindowTypeChanged('hann');
+        widget.player.configureAnalyzer(frameSize: 1024, windowType: 'hann');
         break;
       case 'smooth_curve':
         widget.onAnalyzerEnabledChanged(true);
@@ -2956,7 +2987,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         widget.onAnalyzerShowGridsChanged(true);
         widget.onAnalyzerLogScaleChanged(true);
         widget.onAnalyzerSampleSizeChanged(2048);
-        widget.player.configureAnalyzer(frameSize: 2048);
+        widget.onAnalyzerWindowTypeChanged('hann');
+        widget.player.configureAnalyzer(frameSize: 2048, windowType: 'hann');
         break;
       case 'audiophile_precision':
         widget.onAnalyzerEnabledChanged(true);
@@ -2966,7 +2998,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         widget.onAnalyzerShowGridsChanged(true);
         widget.onAnalyzerLogScaleChanged(true);
         widget.onAnalyzerSampleSizeChanged(4096);
-        widget.player.configureAnalyzer(frameSize: 4096);
+        widget.onAnalyzerWindowTypeChanged('blackman_harris');
+        widget.player.configureAnalyzer(frameSize: 4096, windowType: 'blackman_harris');
         break;
       case 'minimalist':
         widget.onAnalyzerEnabledChanged(true);
@@ -2976,7 +3009,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         widget.onAnalyzerShowGridsChanged(false);
         widget.onAnalyzerLogScaleChanged(false);
         widget.onAnalyzerSampleSizeChanged(512);
-        widget.player.configureAnalyzer(frameSize: 512);
+        widget.onAnalyzerWindowTypeChanged('hamming');
+        widget.player.configureAnalyzer(frameSize: 512, windowType: 'hamming');
         break;
     }
     setSubState(() {});
@@ -4763,6 +4797,85 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     setDlgState(() {});
                     widget.onAnalyzerSampleSizeChanged(v);
                     widget.player.configureAnalyzer(frameSize: v);
+                    onDone?.call();
+                    Navigator.pop(ctx);
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showAnalyzerWindowDialog({VoidCallback? onDone}) {
+    final windows = [
+      (
+        'hann',
+        'Hann (Hanning)',
+        'Balanced standard for music visualization and audio analysis (-31.5 dB sidelobes, 18 dB/oct rolloff). Smooth natural ballistics.',
+      ),
+      (
+        'hamming',
+        'Hamming',
+        'Narrowest main lobe for resolving closely spaced pitches, vocal harmonics, and rapid transients (-42.5 dB sidelobes).',
+      ),
+      (
+        'blackman_harris',
+        'Blackman-Harris (4-Term)',
+        'Ultra-low leakage with -92 dB sidelobe suppression. Eliminates bleed across adjacent RTA bands for pristine dynamic range.',
+      ),
+      (
+        'flat_top',
+        'Flat-Top (5-Term)',
+        'Amplitude-calibrated reference with < 0.01 dB passband ripple. Eliminates scalloping loss for precise decibel and SPL metering.',
+      ),
+    ];
+    M3EBottomSheet.show<void>(
+      context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
+          title: 'FFT Window Functions',
+          subtitle:
+              'Spectral leakage suppression vs main lobe frequency resolution',
+          child: M3ECardList(
+            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            gap: 6.0,
+            outerRadius: 20.0,
+            innerRadius: 6.0,
+            itemCount: windows.length,
+            onTap: (index) {
+              final winId = windows[index].$1;
+              setDlgState(() {});
+              widget.onAnalyzerWindowTypeChanged(winId);
+              widget.player.configureAnalyzer(
+                frameSize: widget.analyzerSampleSize,
+                windowType: winId,
+              );
+              onDone?.call();
+              Navigator.pop(ctx);
+            },
+            itemBuilder: (context, index) {
+              final item = windows[index];
+              final winId = item.$1;
+              final isSelected = winId == widget.analyzerWindowType;
+              return M3EListItem(
+                headline: item.$2,
+                supportingText: item.$3,
+                selected: isSelected,
+                trailing: M3ERadio<String>(
+                  value: winId,
+                  groupValue: widget.analyzerWindowType,
+                  onChanged: (v) {
+                    setDlgState(() {});
+                    widget.onAnalyzerWindowTypeChanged(v);
+                    widget.player.configureAnalyzer(
+                      frameSize: widget.analyzerSampleSize,
+                      windowType: v,
+                    );
                     onDone?.call();
                     Navigator.pop(ctx);
                   },

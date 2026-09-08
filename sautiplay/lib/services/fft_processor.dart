@@ -1,14 +1,18 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'package:sautiflow/sautiflow.dart' show FftWindowType;
 
 /// Real-time Audio Spectrum Processor using Radix-2 Cooley-Tukey FFT,
-/// Hann windowing, decibel magnitude normalization, and logarithmic
-/// frequency binning across all audible frequencies (20 Hz to 20,000 Hz).
+/// configurable FFT windowing (Hann, Hamming, Blackman-Harris, Flat-Top),
+/// decibel magnitude normalization, and logarithmic frequency binning
+/// across all audible frequencies (20 Hz to 20,000 Hz).
 class FftProcessor {
   final int fftSize;
   final int sampleRate;
+  FftWindowType _windowType;
+  FftWindowType get windowType => _windowType;
 
-  late final Float32List _hannWindow;
+  late Float32List _windowTable;
   late final Uint16List _bitReverseTable;
   late final Float32List _cosTable;
   late final Float32List _sinTable;
@@ -21,7 +25,8 @@ class FftProcessor {
   FftProcessor({
     this.fftSize = 512,
     this.sampleRate = 48000,
-  }) {
+    FftWindowType windowType = FftWindowType.hann,
+  }) : _windowType = windowType {
     // Assert power of two
     assert((fftSize & (fftSize - 1)) == 0, 'fftSize must be a power of 2');
 
@@ -29,11 +34,8 @@ class FftProcessor {
     _imag = Float32List(fftSize);
     _magnitudes = Float32List(fftSize ~/ 2);
 
-    // Precalculate Hann Window
-    _hannWindow = Float32List(fftSize);
-    for (int i = 0; i < fftSize; i++) {
-      _hannWindow[i] = 0.5 * (1.0 - math.cos(2.0 * math.pi * i / (fftSize - 1)));
-    }
+    // Precalculate Window Table
+    _computeWindowTable();
 
     // Precalculate Bit Reversal Table
     final bits = (math.log(fftSize) / math.ln2).round();
@@ -55,6 +57,49 @@ class FftProcessor {
       final angle = -2.0 * math.pi * i / fftSize;
       _cosTable[i] = math.cos(angle);
       _sinTable[i] = math.sin(angle);
+    }
+  }
+
+  /// Change active FFT window function dynamically.
+  void setWindowType(FftWindowType windowType) {
+    if (_windowType == windowType) return;
+    _windowType = windowType;
+    _computeWindowTable();
+  }
+
+  void _computeWindowTable() {
+    final n = fftSize;
+    _windowTable = Float32List(n);
+    if (n <= 1) {
+      if (n == 1) _windowTable[0] = 1.0;
+      return;
+    }
+    final twoPi = 2.0 * math.pi;
+    final invN = 1.0 / (n - 1);
+    for (int i = 0; i < n; i++) {
+      final x = twoPi * i * invN;
+      switch (_windowType) {
+        case FftWindowType.hamming:
+          _windowTable[i] = 0.54 - 0.46 * math.cos(x);
+          break;
+        case FftWindowType.blackmanHarris:
+          _windowTable[i] = 0.35875 -
+              0.48829 * math.cos(x) +
+              0.14128 * math.cos(2.0 * x) -
+              0.01168 * math.cos(3.0 * x);
+          break;
+        case FftWindowType.flatTop:
+          _windowTable[i] = 0.21557895 -
+              0.41663158 * math.cos(x) +
+              0.277263158 * math.cos(2.0 * x) -
+              0.083578947 * math.cos(3.0 * x) +
+              0.006947368 * math.cos(4.0 * x);
+          break;
+        case FftWindowType.hann:
+        default:
+          _windowTable[i] = 0.5 * (1.0 - math.cos(x));
+          break;
+      }
     }
   }
 
@@ -83,7 +128,7 @@ class FftProcessor {
     for (int i = 0; i < n; i++) {
       final rev = _bitReverseTable[i];
       if (i < inputLen) {
-        _real[rev] = pcmSamples[i] * _hannWindow[i];
+        _real[rev] = pcmSamples[i] * _windowTable[i];
       } else {
         _real[rev] = 0.0;
       }
@@ -114,8 +159,8 @@ class FftProcessor {
       step = jump;
     }
 
-    // 3. Calculate Normalized Magnitude Spectrum
-    final normFactor = 2.0 / n;
+    // 3. Calculate Normalized Magnitude Spectrum with Window Coherent Gain
+    final normFactor = _windowType.coherentGainFactor / n;
     for (int i = 0; i < halfN; i++) {
       final r = _real[i];
       final im = _imag[i];

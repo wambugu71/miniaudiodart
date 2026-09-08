@@ -26,6 +26,85 @@ enum EqBandType {
 
 enum AttenuationModel { none, inverse, linear, exponential }
 
+/// The 4 premier FFT window functions for spectral analysis and music visualizers.
+enum FftWindowType {
+  /// Hann (Hanning): Balanced standard for music visualization and general audio.
+  /// Smooth cosine bell curve, -31.5 dB peak sidelobes, 18 dB/octave rolloff.
+  hann,
+
+  /// Hamming: Narrow main lobe, best for distinguishing close adjacent harmonics.
+  /// -42.5 dB peak sidelobes, sharp peak separation.
+  hamming,
+
+  /// Blackman-Harris: 4-term high dynamic range window.
+  /// -92 dB sidelobe suppression virtually eliminates leakage skirts between RTA bands.
+  blackmanHarris,
+
+  /// Flat-Top: 5-term amplitude-calibrated reference window.
+  /// Scalloping loss < 0.01 dB for accurate decibel/peak amplitude measurements.
+  flatTop;
+
+  String get displayName {
+    switch (this) {
+      case FftWindowType.hann:
+        return 'Hann';
+      case FftWindowType.hamming:
+        return 'Hamming';
+      case FftWindowType.blackmanHarris:
+        return 'Blackman-Harris';
+      case FftWindowType.flatTop:
+        return 'Flat-Top';
+    }
+  }
+
+  String get description {
+    switch (this) {
+      case FftWindowType.hann:
+        return 'Balanced standard with smooth visual response (-31.5 dB sidelobes)';
+      case FftWindowType.hamming:
+        return 'Narrow main lobe for sharp separation of adjacent musical harmonics (-42.5 dB sidelobes)';
+      case FftWindowType.blackmanHarris:
+        return '4-term high dynamic range with ultra-low leakage (-92 dB sidelobes)';
+      case FftWindowType.flatTop:
+        return 'Calibrated passband with < 0.01 dB scalloping loss for precise RTA metering';
+    }
+  }
+
+  /// Amplitude Correction Factor (Coherent Gain) to keep spectral levels calibrated.
+  double get coherentGainFactor {
+    switch (this) {
+      case FftWindowType.hann:
+        return 2.0; // 1.0 / 0.50
+      case FftWindowType.hamming:
+        return 1.85185185; // 1.0 / 0.54
+      case FftWindowType.blackmanHarris:
+        return 2.78745645; // 1.0 / 0.35875
+      case FftWindowType.flatTop:
+        return 4.63866896; // 1.0 / 0.21557895
+    }
+  }
+
+  static FftWindowType fromString(String? val) {
+    if (val == null) return FftWindowType.hann;
+    final lower = val.toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
+    switch (lower) {
+      case 'hamming':
+        return FftWindowType.hamming;
+      case 'blackman_harris':
+      case 'blackmanharris':
+      case 'blackman':
+        return FftWindowType.blackmanHarris;
+      case 'flat_top':
+      case 'flattop':
+        return FftWindowType.flatTop;
+      case 'hann':
+      case 'hanning':
+      default:
+        return FftWindowType.hann;
+    }
+  }
+}
+
 /// Mirrors CrossfeedAlgorithm in crossfeed_node.h — must stay in sync.
 enum CrossfeedAlgorithm { off, simple, bs2b, meier, natural, race }
 
@@ -1429,6 +1508,24 @@ typedef _GetAnalyzerDroppedFramesNative = ffi.Uint64 Function(
     ffi.Pointer<ffi.Void>);
 typedef _GetAnalyzerDroppedFramesDart = int Function(ffi.Pointer<ffi.Void>);
 
+typedef _ConfigureAnalyzerWindowNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _ConfigureAnalyzerWindowDart = void Function(
+    ffi.Pointer<ffi.Void>, int);
+
+typedef _GetAnalyzerWindowTypeNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
+typedef _GetAnalyzerWindowTypeDart = int Function(ffi.Pointer<ffi.Void>);
+
+typedef _GenerateFftWindowNative = ffi.Void Function(
+    ffi.Int32, ffi.Pointer<ffi.Float>, ffi.Int32);
+typedef _GenerateFftWindowDart = void Function(
+    int, ffi.Pointer<ffi.Float>, int);
+
+typedef _ApplyFftWindowNative = ffi.Void Function(
+    ffi.Pointer<ffi.Float>, ffi.Pointer<ffi.Float>, ffi.Int32, ffi.Int32);
+typedef _ApplyFftWindowDart = void Function(
+    ffi.Pointer<ffi.Float>, ffi.Pointer<ffi.Float>, int, int);
+
 class PlayerStatus {
   final double positionSeconds;
   final double durationSeconds;
@@ -2197,6 +2294,27 @@ class AudioEngineFFI {
     );
 
     try {
+      _configureAnalyzerWindow = _lib.lookupFunction<
+          _ConfigureAnalyzerWindowNative, _ConfigureAnalyzerWindowDart>(
+        'ae_configure_analyzer_window',
+      );
+      _getAnalyzerWindowType = _lib.lookupFunction<
+          _GetAnalyzerWindowTypeNative, _GetAnalyzerWindowTypeDart>(
+        'ae_get_analyzer_window_type',
+      );
+      _generateFftWindow = _lib.lookupFunction<
+          _GenerateFftWindowNative, _GenerateFftWindowDart>(
+        'ae_generate_fft_window',
+      );
+      _applyFftWindow = _lib.lookupFunction<
+          _ApplyFftWindowNative, _ApplyFftWindowDart>(
+        'ae_apply_fft_window',
+      );
+    } catch (_) {
+      // Graceful fallback for dynamic libraries without window functions
+    }
+
+    try {
       _getLoudnessMetrics = _lib.lookupFunction<_GetLoudnessMetricsNative,
           _GetLoudnessMetricsDart>('ae_get_loudness_metrics');
       _resetLoudnessMeter = _lib.lookupFunction<_ResetLoudnessMeterNative,
@@ -2493,6 +2611,10 @@ class AudioEngineFFI {
   late final _GetAnalyzerFrameSizeDart _getAnalyzerFrameSize;
   late final _PollAnalyzerFrameDart _pollAnalyzerFrame;
   late final _GetAnalyzerDroppedFramesDart _getAnalyzerDroppedFrames;
+  _ConfigureAnalyzerWindowDart? _configureAnalyzerWindow;
+  _GetAnalyzerWindowTypeDart? _getAnalyzerWindowType;
+  _GenerateFftWindowDart? _generateFftWindow;
+  _ApplyFftWindowDart? _applyFftWindow;
 
   late final _MallocDart _malloc;
   late final _FreeDart _free;
@@ -4228,9 +4350,78 @@ class AudioEngineFFI {
     _setAnalyzerEnabled(_engine, enabled ? 1 : 0);
   }
 
-  void configureAnalyzer(int frameSize) {
+  void configureAnalyzer(int frameSize, [FftWindowType? windowType]) {
     if (_engine == ffi.nullptr) return;
     _configureAnalyzer(_engine, frameSize);
+    if (windowType != null) {
+      configureAnalyzerWindow(windowType);
+    }
+  }
+
+  void configureAnalyzerWindow(FftWindowType windowType) {
+    if (_engine == ffi.nullptr) return;
+    _configureAnalyzerWindow?.call(_engine, windowType.index);
+  }
+
+  FftWindowType getAnalyzerWindowType() {
+    if (_engine == ffi.nullptr) return FftWindowType.hann;
+    final idx = _getAnalyzerWindowType?.call(_engine) ?? 0;
+    if (idx >= 0 && idx < FftWindowType.values.length) {
+      return FftWindowType.values[idx];
+    }
+    return FftWindowType.hann;
+  }
+
+  Float32List generateFftWindow(int size, FftWindowType windowType) {
+    if (size <= 0) return Float32List(0);
+    final ptr = _malloc(size * ffi.sizeOf<ffi.Float>()).cast<ffi.Float>();
+    try {
+      if (_generateFftWindow != null) {
+        _generateFftWindow!(windowType.index, ptr, size);
+      } else {
+        final twoPi = 2.0 * math.pi;
+        final invN = (size > 1) ? 1.0 / (size - 1) : 0.0;
+        for (int i = 0; i < size; i++) {
+          final x = twoPi * i * invN;
+          switch (windowType) {
+            case FftWindowType.hamming:
+              ptr[i] = 0.54 - 0.46 * math.cos(x);
+              break;
+            case FftWindowType.blackmanHarris:
+              ptr[i] = 0.35875 -
+                  0.48829 * math.cos(x) +
+                  0.14128 * math.cos(2.0 * x) -
+                  0.01168 * math.cos(3.0 * x);
+              break;
+            case FftWindowType.flatTop:
+              ptr[i] = 0.21557895 -
+                  0.41663158 * math.cos(x) +
+                  0.277263158 * math.cos(2.0 * x) -
+                  0.083578947 * math.cos(3.0 * x) +
+                  0.006947368 * math.cos(4.0 * x);
+              break;
+            case FftWindowType.hann:
+            default:
+              ptr[i] = 0.5 * (1.0 - math.cos(x));
+              break;
+          }
+        }
+      }
+      return Float32List.fromList(ptr.asTypedList(size));
+    } finally {
+      _freePtr(ptr.cast<ffi.Void>());
+    }
+  }
+
+  Float32List applyFftWindow(Float32List inSamples, FftWindowType windowType) {
+    final size = inSamples.length;
+    if (size <= 0) return Float32List(0);
+    final win = generateFftWindow(size, windowType);
+    final out = Float32List(size);
+    for (int i = 0; i < size; i++) {
+      out[i] = inSamples[i] * win[i];
+    }
+    return out;
   }
 
   int getAnalyzerFrameSize() {

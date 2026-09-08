@@ -738,6 +738,7 @@ class AppStateService {
   static const _kAnalyzerEnabled = 'sp_analyzer_enabled';
   static const _kAnalyzerType = 'sp_analyzer_type';
   static const _kAnalyzerSampleSize = 'sp_analyzer_sample_size';
+  static const _kAnalyzerWindowType = 'sp_analyzer_window_type';
   static const _kAllowInvalidTls = 'sp_allow_invalid_tls';
   static const _kExclusiveMode = 'sp_exclusive_mode';
   static const _kAnalyzerAutoFit = 'sp_analyzer_auto_fit';
@@ -755,6 +756,7 @@ class AppStateService {
     required bool analyzerEnabled,
     required String analyzerType,
     required int analyzerSampleSize,
+    String analyzerWindowType = 'hann',
     required bool allowInvalidTls,
     required bool exclusiveMode,
     required bool analyzerAutoFit,
@@ -772,6 +774,7 @@ class AppStateService {
     await prefs.setBool(_kAnalyzerEnabled, analyzerEnabled);
     await prefs.setString(_kAnalyzerType, analyzerType);
     await prefs.setInt(_kAnalyzerSampleSize, analyzerSampleSize);
+    await prefs.setString(_kAnalyzerWindowType, analyzerWindowType);
     await prefs.setBool(_kAllowInvalidTls, allowInvalidTls);
     await prefs.setBool(_kExclusiveMode, exclusiveMode);
     await prefs.setBool(_kAnalyzerAutoFit, analyzerAutoFit);
@@ -800,6 +803,7 @@ class AppStateService {
         bool analyzerEnabled,
         String analyzerType,
         int analyzerSampleSize,
+        String analyzerWindowType,
         bool allowInvalidTls,
         bool exclusiveMode,
         bool analyzerAutoFit,
@@ -818,6 +822,7 @@ class AppStateService {
       analyzerEnabled: prefs.getBool(_kAnalyzerEnabled) ?? true,
       analyzerType: prefs.getString(_kAnalyzerType) ?? 'area',
       analyzerSampleSize: prefs.getInt(_kAnalyzerSampleSize) ?? 1024,
+      analyzerWindowType: prefs.getString(_kAnalyzerWindowType) ?? 'hann',
       allowInvalidTls: prefs.getBool(_kAllowInvalidTls) ?? false,
       exclusiveMode: prefs.getBool(_kExclusiveMode) ?? false,
       analyzerAutoFit: prefs.getBool(_kAnalyzerAutoFit) ?? true,

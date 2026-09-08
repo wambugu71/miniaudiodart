@@ -3417,6 +3417,7 @@ struct AudioEngineHandle
 
     std::atomic<bool> analyzerEnabled{false};
     int analyzerFrameSize = 512;
+    std::atomic<int> analyzerWindowType{0};
     std::vector<float> analyzerAccumulator;
     int analyzerAccumulatorCount = 0;
     std::vector<float> analyzerLatest;
@@ -9558,6 +9559,71 @@ extern "C"
         if (!engine)
             return 0;
         return engine->analyzerFrameSize;
+    }
+
+    AE_API void ae_configure_analyzer_window(AudioEngineHandle *engine, int window_type)
+    {
+        if (!engine)
+            return;
+        engine->analyzerWindowType.store(std::clamp(window_type, 0, 3), std::memory_order_relaxed);
+    }
+
+    AE_API int ae_get_analyzer_window_type(AudioEngineHandle *engine)
+    {
+        if (!engine)
+            return 0;
+        return engine->analyzerWindowType.load(std::memory_order_relaxed);
+    }
+
+    AE_API void ae_generate_fft_window(int window_type, float *out_window, int size)
+    {
+        if (!out_window || size <= 0)
+            return;
+        if (size == 1)
+        {
+            out_window[0] = 1.0f;
+            return;
+        }
+
+        const float two_pi = 6.28318530717958647692f;
+        const float inv_n = 1.0f / (float)(size - 1);
+
+        for (int i = 0; i < size; ++i)
+        {
+            const float x = two_pi * (float)i * inv_n;
+            switch (window_type)
+            {
+            case AE_FFT_WINDOW_HAMMING:
+                // Hamming: 0.54 - 0.46 * cos(2pi * n / (N - 1))
+                out_window[i] = 0.54f - 0.46f * std::cos(x);
+                break;
+            case AE_FFT_WINDOW_BLACKMAN_HARRIS:
+                // 4-term Blackman-Harris (-92 dB sidelobes)
+                out_window[i] = 0.35875f - 0.48829f * std::cos(x) + 0.14128f * std::cos(2.0f * x) - 0.01168f * std::cos(3.0f * x);
+                break;
+            case AE_FFT_WINDOW_FLAT_TOP:
+                // 5-term Flat-Top (ISO/Stanford, passband ripple < 0.01 dB, amplitude-calibrated)
+                out_window[i] = 0.21557895f - 0.41663158f * std::cos(x) + 0.277263158f * std::cos(2.0f * x) - 0.083578947f * std::cos(3.0f * x) + 0.006947368f * std::cos(4.0f * x);
+                break;
+            case AE_FFT_WINDOW_HANN:
+            default:
+                // Hann: 0.5 * (1 - cos(2pi * n / (N - 1)))
+                out_window[i] = 0.5f * (1.0f - std::cos(x));
+                break;
+            }
+        }
+    }
+
+    AE_API void ae_apply_fft_window(const float *in_samples, float *out_samples, int size, int window_type)
+    {
+        if (!in_samples || !out_samples || size <= 0)
+            return;
+        std::vector<float> win((size_t)size);
+        ae_generate_fft_window(window_type, win.data(), size);
+        for (int i = 0; i < size; ++i)
+        {
+            out_samples[i] = in_samples[i] * win[(size_t)i];
+        }
     }
 
     AE_API int ae_poll_analyzer_frame(AudioEngineHandle *engine, float *out_samples, int max_samples)

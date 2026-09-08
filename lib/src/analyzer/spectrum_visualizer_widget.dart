@@ -47,6 +47,9 @@ class SpectrumVisualizerWidget extends StatefulWidget {
   /// Height of the visualizer.
   final double height;
 
+  /// FFT Window function (Hann, Hamming, Blackman-Harris, Flat-Top).
+  final FftWindowType windowType;
+
   const SpectrumVisualizerWidget({
     super.key,
     required this.analyzerStream,
@@ -58,6 +61,7 @@ class SpectrumVisualizerWidget extends StatefulWidget {
     this.peakHoldColor,
     this.barRadius = 3.0,
     this.height = 120.0,
+    this.windowType = FftWindowType.hann,
   });
 
   @override
@@ -73,7 +77,10 @@ class _SpectrumVisualizerWidgetState extends State<SpectrumVisualizerWidget> {
   @override
   void initState() {
     super.initState();
-    _processor = AudioAnalysisProcessor(numBands: widget.bandCount);
+    _processor = AudioAnalysisProcessor(
+      numBands: widget.bandCount,
+      windowType: widget.windowType,
+    );
     _currentData = AudioAnalysisData.empty(widget.bandCount);
     _listenToStream();
   }
@@ -82,8 +89,13 @@ class _SpectrumVisualizerWidgetState extends State<SpectrumVisualizerWidget> {
   void didUpdateWidget(SpectrumVisualizerWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.bandCount != widget.bandCount) {
-      _processor = AudioAnalysisProcessor(numBands: widget.bandCount);
+      _processor = AudioAnalysisProcessor(
+        numBands: widget.bandCount,
+        windowType: widget.windowType,
+      );
       _currentData = AudioAnalysisData.empty(widget.bandCount);
+    } else if (oldWidget.windowType != widget.windowType) {
+      _processor.setWindowType(widget.windowType);
     }
     if (oldWidget.analyzerStream != widget.analyzerStream) {
       _sub?.cancel();
@@ -93,7 +105,7 @@ class _SpectrumVisualizerWidgetState extends State<SpectrumVisualizerWidget> {
 
   void _listenToStream() {
     _sub = widget.analyzerStream.listen((pcmFrame) {
-      if (mounted && widget.isPlaying) {
+      if (mounted) {
         final newData = _processor.processFrame(pcmFrame);
         setState(() {
           _currentData = newData;
@@ -261,7 +273,7 @@ class _RmsMeterWidgetState extends State<RmsMeterWidget> {
   void initState() {
     super.initState();
     _sub = widget.analyzerStream.listen((pcmFrame) {
-      if (mounted && widget.isPlaying) {
+      if (mounted) {
         setState(() {
           _currentData = _processor.processFrame(pcmFrame);
         });
@@ -284,7 +296,7 @@ class _RmsMeterWidgetState extends State<RmsMeterWidget> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.4),
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
@@ -343,8 +355,8 @@ class _RmsMeterWidgetState extends State<RmsMeterWidget> {
                     widthFactor: normPeak,
                     child: Container(
                       color: normPeak > 0.95
-                          ? Colors.redAccent.withOpacity(0.5)
-                          : Colors.amber.withOpacity(0.4),
+                          ? Colors.redAccent.withValues(alpha: 0.5)
+                          : Colors.amber.withValues(alpha: 0.4),
                     ),
                   ),
                   // RMS Level Bar

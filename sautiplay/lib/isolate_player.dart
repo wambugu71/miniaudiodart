@@ -25,6 +25,8 @@ class IsolateAudioPlayer {
   bool _networkStreamingSupported = false;
   StreamTelemetry _lastTelemetry = const StreamTelemetry();
   bool _isBuffering = false;
+  PlayerStatus? _lastStatus;
+  bool _isPlaying = false;
 
   Stream<PlayerStatus> get statusStream => _statusController.stream;
   Stream<String> get logStream => _logController.stream;
@@ -34,6 +36,8 @@ class IsolateAudioPlayer {
   Stream<bool> get bufferingStream => _bufferingController.stream;
   StreamTelemetry get streamTelemetry => _lastTelemetry;
   bool get isBuffering => _isBuffering;
+  PlayerStatus? get currentStatus => _lastStatus;
+  bool get isPlaying => _isPlaying;
 
   MiniAudioSystemAudioController? _systemAudio;
   DesktopSystemAudioController? _desktopAudio;
@@ -92,6 +96,8 @@ class IsolateAudioPlayer {
         _flushPendingCommands();
         if (!_ready.isCompleted) _ready.complete();
       } else if (message is PlayerStatus) {
+        _lastStatus = message;
+        _isPlaying = message.isPlaying;
         _statusController.add(message);
       } else if (message is Float32List) {
         _analyzerController.add(message);
@@ -155,6 +161,7 @@ class IsolateAudioPlayer {
   // --- Commands ---
 
   void play() {
+    _isPlaying = true;
     if (DlnaService.instance.activeRenderer != null) {
       DlnaService.instance.play();
     }
@@ -162,6 +169,7 @@ class IsolateAudioPlayer {
   }
 
   void pause() {
+    _isPlaying = false;
     if (DlnaService.instance.activeRenderer != null) {
       DlnaService.instance.pause();
     }
@@ -169,6 +177,7 @@ class IsolateAudioPlayer {
   }
 
   void stop() {
+    _isPlaying = false;
     if (DlnaService.instance.activeRenderer != null) {
       DlnaService.instance.stop();
     }
@@ -970,8 +979,15 @@ class IsolateAudioPlayer {
         'safetyAttenuationDb': safetyAttenuationDb,
       });
 
-  void configureAnalyzer({int frameSize = 512}) =>
-      _send({'cmd': 'configureAnalyzer', 'frameSize': frameSize});
+  void configureAnalyzer({int frameSize = 512, String? windowType}) =>
+      _send({
+        'cmd': 'configureAnalyzer',
+        'frameSize': frameSize,
+        if (windowType != null) 'windowType': windowType,
+      });
+
+  void setAnalyzerWindowType(String windowType) =>
+      _send({'cmd': 'setAnalyzerWindowType', 'windowType': windowType});
 
   void setAnalyzerEnabled(bool enabled) =>
       _send({'cmd': 'setAnalyzerEnabled', 'enabled': enabled});
@@ -1761,9 +1777,18 @@ void _isolateEntry(_IsolateInitData initData) {
           player.setAnalyzerEnabled(message['enabled'] == true);
           break;
         case 'configureAnalyzer':
+          final wtStr = message['windowType'] as String?;
+          final wt = wtStr != null ? FftWindowType.fromString(wtStr) : null;
           player.configureAnalyzer(
             frameSize: (message['frameSize'] as int?) ?? 512,
+            windowType: wt,
           );
+          break;
+        case 'setAnalyzerWindowType':
+          final wtStr = message['windowType'] as String?;
+          if (wtStr != null) {
+            player.setAnalyzerWindowType(FftWindowType.fromString(wtStr));
+          }
           break;
         case 'setSpeakerProtectionParams':
           {

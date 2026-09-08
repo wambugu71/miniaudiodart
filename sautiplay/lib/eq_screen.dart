@@ -1021,6 +1021,7 @@ class _EqScreenState extends State<EqScreen>
     super.initState();
     _loadPreferences();
     _initEq();
+    _isPlaying = widget.player.isPlaying;
     widget.player.setAnalyzerEnabled(true);
     widget.player.configureAnalyzer(frameSize: 512);
 
